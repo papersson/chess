@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 chess-core = { path = "../core" }
 chess-agents = { path = "../agents" }
+crossterm = "0.27"
 
 [[bin]]
 name = "chess"

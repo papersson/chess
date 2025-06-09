@@ -34,6 +34,11 @@ pub struct SearchLimits {
     pub max_depth: Option<u8>,
     pub move_time: Option<Duration>,
     pub nodes: Option<u64>,
+    pub white_time: Option<Duration>,
+    pub black_time: Option<Duration>,
+    pub white_increment: Option<Duration>,
+    pub black_increment: Option<Duration>,
+    pub moves_to_go: Option<u32>,
 }
 
 impl SearchLimits {
@@ -42,6 +47,11 @@ impl SearchLimits {
             max_depth: Some(depth),
             move_time: None,
             nodes: None,
+            white_time: None,
+            black_time: None,
+            white_increment: None,
+            black_increment: None,
+            moves_to_go: None,
         }
     }
 
@@ -50,6 +60,30 @@ impl SearchLimits {
             max_depth: None,
             move_time: Some(Duration::from_millis(millis)),
             nodes: None,
+            white_time: None,
+            black_time: None,
+            white_increment: None,
+            black_increment: None,
+            moves_to_go: None,
+        }
+    }
+
+    pub fn time_control(
+        white_time: Duration,
+        black_time: Duration,
+        white_inc: Duration,
+        black_inc: Duration,
+        moves_to_go: Option<u32>,
+    ) -> Self {
+        Self {
+            max_depth: None,
+            move_time: None,
+            nodes: None,
+            white_time: Some(white_time),
+            black_time: Some(black_time),
+            white_increment: Some(white_inc),
+            black_increment: Some(black_inc),
+            moves_to_go,
         }
     }
 }
@@ -162,7 +196,62 @@ pub fn search_with_options(
     search_internal(state, &mut info)
 }
 
+fn allocate_time(limits: &SearchLimits, state: &GameState) -> Option<Duration> {
+    // If explicit move time is set, use it
+    if let Some(move_time) = limits.move_time {
+        return Some(move_time);
+    }
+
+    // Get time for the side to move
+    let (our_time, our_inc) = match state.side_to_move() {
+        chess_core::Color::White => (
+            limits.white_time?,
+            limits.white_increment.unwrap_or(Duration::from_millis(0)),
+        ),
+        chess_core::Color::Black => (
+            limits.black_time?,
+            limits.black_increment.unwrap_or(Duration::from_millis(0)),
+        ),
+    };
+
+    let our_time_ms = our_time.as_millis() as u64;
+    let our_inc_ms = our_inc.as_millis() as u64;
+
+    // Estimate moves remaining in the game
+    let moves_left = if let Some(mtg) = limits.moves_to_go {
+        mtg as u64
+    } else {
+        // Estimate based on game phase (40 moves total, 20 per side on average)
+        let phase_moves = match state.fullmove_number {
+            1..=10 => 30,  // Opening: expect 30 more moves
+            11..=30 => 20, // Middle game: expect 20 more moves
+            _ => 10,       // Endgame: expect 10 more moves
+        };
+        phase_moves
+    };
+
+    // Basic time allocation formula
+    // Use more time if we have increment, less if in time pressure
+    let base_time = our_time_ms / moves_left;
+    let increment_bonus = our_inc_ms * 8 / 10; // Use 80% of increment
+
+    // Add safety margin - never use more than 95% of remaining time
+    let max_time = our_time_ms * 95 / 100;
+    let allocated = (base_time + increment_bonus).min(max_time);
+
+    // Minimum time (don't think less than 50ms)
+    let final_time = allocated.max(50);
+
+    Some(Duration::from_millis(final_time))
+}
+
 fn search_internal(state: &GameState, info: &mut SearchInfo) -> SearchResult {
+    // Calculate time allocation if using time control
+    if info.limits.white_time.is_some() && info.limits.black_time.is_some() {
+        if let Some(allocated_time) = allocate_time(&info.limits, state) {
+            info.limits.move_time = Some(allocated_time);
+        }
+    }
     if let Some(max_depth) = info.limits.max_depth {
         // Fixed depth search
         let mut result = SearchResult {

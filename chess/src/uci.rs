@@ -129,6 +129,11 @@ impl UciEngine {
             max_depth: None,
             move_time: None,
             nodes: None,
+            white_time: None,
+            black_time: None,
+            white_increment: None,
+            black_increment: None,
+            moves_to_go: None,
         };
 
         let mut idx = 1;
@@ -169,16 +174,67 @@ impl UciEngine {
                     limits.max_depth = Some(100);
                     idx += 1;
                 }
-                "wtime" | "btime" | "winc" | "binc" | "movestogo" => {
-                    // TODO: Implement time control
-                    idx += 2;
+                "wtime" => {
+                    if idx + 1 < parts.len() {
+                        if let Ok(ms) = parts[idx + 1].parse::<u64>() {
+                            limits.white_time = Some(Duration::from_millis(ms));
+                        }
+                        idx += 2;
+                    } else {
+                        idx += 1;
+                    }
+                }
+                "btime" => {
+                    if idx + 1 < parts.len() {
+                        if let Ok(ms) = parts[idx + 1].parse::<u64>() {
+                            limits.black_time = Some(Duration::from_millis(ms));
+                        }
+                        idx += 2;
+                    } else {
+                        idx += 1;
+                    }
+                }
+                "winc" => {
+                    if idx + 1 < parts.len() {
+                        if let Ok(ms) = parts[idx + 1].parse::<u64>() {
+                            limits.white_increment = Some(Duration::from_millis(ms));
+                        }
+                        idx += 2;
+                    } else {
+                        idx += 1;
+                    }
+                }
+                "binc" => {
+                    if idx + 1 < parts.len() {
+                        if let Ok(ms) = parts[idx + 1].parse::<u64>() {
+                            limits.black_increment = Some(Duration::from_millis(ms));
+                        }
+                        idx += 2;
+                    } else {
+                        idx += 1;
+                    }
+                }
+                "movestogo" => {
+                    if idx + 1 < parts.len() {
+                        if let Ok(mtg) = parts[idx + 1].parse::<u32>() {
+                            limits.moves_to_go = Some(mtg);
+                        }
+                        idx += 2;
+                    } else {
+                        idx += 1;
+                    }
                 }
                 _ => idx += 1,
             }
         }
 
-        // Default to depth 6 if no limits specified
-        if limits.max_depth.is_none() && limits.move_time.is_none() && limits.nodes.is_none() {
+        // Default to depth 6 if no limits specified (including time control)
+        if limits.max_depth.is_none()
+            && limits.move_time.is_none()
+            && limits.nodes.is_none()
+            && limits.white_time.is_none()
+            && limits.black_time.is_none()
+        {
             limits.max_depth = Some(6);
         }
 
