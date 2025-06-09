@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 const INFINITY: i32 = 1_000_000;
 const CHECKMATE_SCORE: i32 = 100_000;
 const TIME_CHECK_INTERVAL: u64 = 1000; // Check time every 1000 nodes
+const QUIESCENCE_DEPTH: i8 = 4; // Maximum depth for quiescence search
 
 #[derive(Debug, Clone)]
 pub struct SearchResult {
@@ -60,6 +61,7 @@ struct SearchInfo {
     stopped: bool,
     info_callback: Option<InfoCallback>,
     tt: Arc<TranspositionTable>,
+    quiescence_depth: i8,
 }
 
 impl SearchInfo {
@@ -71,6 +73,7 @@ impl SearchInfo {
             stopped: false,
             info_callback: None,
             tt,
+            quiescence_depth: QUIESCENCE_DEPTH,
         }
     }
 
@@ -86,6 +89,7 @@ impl SearchInfo {
             stopped: false,
             info_callback: Some(callback),
             tt,
+            quiescence_depth: QUIESCENCE_DEPTH,
         }
     }
 
@@ -143,6 +147,18 @@ pub fn search_with_callback(
 ) -> SearchResult {
     let tt = Arc::new(TranspositionTable::new(16)); // 16 MB default
     let mut info = SearchInfo::with_callback(limits, callback, tt);
+    search_internal(state, &mut info)
+}
+
+pub fn search_with_options(
+    state: &GameState,
+    limits: SearchLimits,
+    tt_size_mb: usize,
+    quiescence_depth: i8,
+) -> SearchResult {
+    let tt = Arc::new(TranspositionTable::new(tt_size_mb));
+    let mut info = SearchInfo::new(limits, tt);
+    info.quiescence_depth = quiescence_depth;
     search_internal(state, &mut info)
 }
 
@@ -280,9 +296,9 @@ fn alpha_beta(
         tt_move = entry.best_move;
     }
 
-    // Terminal node - return evaluation
+    // Terminal node - enter quiescence search
     if depth == 0 {
-        let score = state.evaluate();
+        let score = quiescence(state, info.quiescence_depth, alpha, beta, info);
         info.tt.store(hash, None, score, 0, NodeType::Exact);
         return (score, None, vec![]);
     }
@@ -356,6 +372,105 @@ fn alpha_beta(
     info.tt.store(hash, best_move, best_score, depth, node_type);
 
     (best_score, best_move, best_pv)
+}
+
+fn quiescence(
+    state: &GameState,
+    depth: i8,
+    mut alpha: i32,
+    beta: i32,
+    info: &mut SearchInfo,
+) -> i32 {
+    info.nodes += 1;
+
+    // Check if we should stop searching
+    if info.should_stop() {
+        return 0;
+    }
+
+    // Stand pat evaluation - can we beat alpha without searching?
+    let stand_pat = state.evaluate();
+
+    if stand_pat >= beta {
+        return beta;
+    }
+
+    if alpha < stand_pat {
+        alpha = stand_pat;
+    }
+
+    // Depth limit for quiescence search
+    if depth <= 0 {
+        return stand_pat;
+    }
+
+    // Generate all legal moves
+    let moves = generate_legal_moves(state);
+
+    // Filter to only captures and promotions
+    let mut capture_moves: Vec<Move> = moves
+        .iter()
+        .copied()
+        .filter(|mv| {
+            // Is this a capture?
+            state.board.piece_at(mv.to).is_some() ||
+            // Is this a promotion?
+            mv.promotion.is_some() ||
+            // Is this an en passant capture?
+            (state.board.piece_at(mv.from).map(|p| p.piece_type == chess_core::PieceType::Pawn).unwrap_or(false) &&
+             Some(mv.to) == state.en_passant)
+        })
+        .collect();
+
+    // If no captures, return stand pat
+    if capture_moves.is_empty() {
+        return stand_pat;
+    }
+
+    // Order captures by MVV-LVA (Most Valuable Victim - Least Valuable Attacker)
+    order_captures(state, &mut capture_moves);
+
+    for mv in capture_moves {
+        let new_state = state.apply_move(mv);
+        let score = -quiescence(&new_state, depth - 1, -beta, -alpha, info);
+
+        if info.stopped {
+            return alpha;
+        }
+
+        if score >= beta {
+            return beta;
+        }
+
+        if score > alpha {
+            alpha = score;
+        }
+    }
+
+    alpha
+}
+
+fn order_captures(state: &GameState, moves: &mut [Move]) {
+    moves.sort_by_cached_key(|mv| {
+        let mut score = 0;
+
+        // Get victim value (what we're capturing)
+        if let Some(victim) = state.board.piece_at(mv.to) {
+            score -= victim.piece_type.value() as i32 * 10;
+        }
+
+        // Get attacker value (prefer capturing with less valuable pieces)
+        if let Some(attacker) = state.board.piece_at(mv.from) {
+            score += attacker.piece_type.value() as i32;
+        }
+
+        // Promotions are also valuable
+        if let Some(promo) = mv.promotion {
+            score -= promo.value() as i32 * 10;
+        }
+
+        score
+    });
 }
 
 fn order_moves(state: &GameState, moves: &mut [Move]) {
