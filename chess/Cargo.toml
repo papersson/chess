@@ -1,0 +1,12 @@
+[package]
+name = "chess"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+chess-core = { path = "../core" }
+chess-agents = { path = "../agents" }
+
+[[bin]]
+name = "chess"
+path = "src/main.rs"

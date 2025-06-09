@@ -1,17 +1,7 @@
-mod board;
-mod evaluation;
-mod fen;
-mod game_state;
-mod move_gen;
-mod perft;
-mod search;
-mod types;
 mod uci;
 
-use fen::positions;
-use game_state::GameState;
-use perft::{perft, perft_divide};
-use search::{SearchLimits, iterative_deepening, search, search_with_limits};
+use chess_agents::{iterative_deepening, search, search_with_limits, Evaluatable, SearchLimits};
+use chess_core::{perft, perft_divide, positions, GameState};
 use std::env;
 
 fn main() {
@@ -101,7 +91,7 @@ fn main() {
         println!("Evaluation: {} cp", state.evaluate());
         println!(
             "(from {}'s perspective)",
-            if state.turn == types::Color::White {
+            if state.turn == chess_core::Color::White {
                 "White"
             } else {
                 "Black"

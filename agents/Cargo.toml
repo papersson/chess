@@ -1,0 +1,12 @@
+[package]
+name = "chess-agents"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+chess-core = { path = "../core" }
+rand = "0.8"
+
+[lib]
+name = "chess_agents"
+path = "src/lib.rs"

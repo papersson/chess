@@ -1,6 +1,5 @@
-use crate::game_state::GameState;
-use crate::search::{SearchLimits, SearchProgress, search_with_callback};
-use crate::types::Move;
+use chess_agents::{search_with_callback, SearchLimits, SearchProgress};
+use chess_core::{GameState, Move};
 use std::io::{self, BufRead, Write};
 use std::time::Duration;
 
@@ -230,26 +229,26 @@ impl UciEngine {
         // Parse from square
         let from_file = (bytes[0] as i8 - b'a' as i8) as u8;
         let from_rank = (bytes[1] as i8 - b'1' as i8) as u8;
-        let from = crate::types::Square::new(
-            crate::types::File::new(from_file)?,
-            crate::types::Rank::new(from_rank)?,
+        let from = chess_core::Square::new(
+            chess_core::File::new(from_file)?,
+            chess_core::Rank::new(from_rank)?,
         );
 
         // Parse to square
         let to_file = (bytes[2] as i8 - b'a' as i8) as u8;
         let to_rank = (bytes[3] as i8 - b'1' as i8) as u8;
-        let to = crate::types::Square::new(
-            crate::types::File::new(to_file)?,
-            crate::types::Rank::new(to_rank)?,
+        let to = chess_core::Square::new(
+            chess_core::File::new(to_file)?,
+            chess_core::Rank::new(to_rank)?,
         );
 
         // Parse promotion if present
         let promotion = if move_str.len() > 4 {
             match bytes[4] {
-                b'q' => Some(crate::types::PieceType::Queen),
-                b'r' => Some(crate::types::PieceType::Rook),
-                b'b' => Some(crate::types::PieceType::Bishop),
-                b'n' => Some(crate::types::PieceType::Knight),
+                b'q' => Some(chess_core::PieceType::Queen),
+                b'r' => Some(chess_core::PieceType::Rook),
+                b'b' => Some(chess_core::PieceType::Bishop),
+                b'n' => Some(chess_core::PieceType::Knight),
                 _ => None,
             }
         } else {
@@ -264,7 +263,7 @@ impl UciEngine {
         };
 
         // Verify move is legal
-        let moves = crate::move_gen::generate_legal_moves(&self.position);
+        let moves = chess_core::generate_legal_moves(&self.position);
         if moves.iter().any(|&legal_mv| legal_mv == mv) {
             Some(mv)
         } else {
@@ -281,10 +280,10 @@ fn format_move_static(mv: Move) -> String {
     let mut result = format!("{}{}", mv.from, mv.to);
     if let Some(promo) = mv.promotion {
         result.push(match promo {
-            crate::types::PieceType::Queen => 'q',
-            crate::types::PieceType::Rook => 'r',
-            crate::types::PieceType::Bishop => 'b',
-            crate::types::PieceType::Knight => 'n',
+            chess_core::PieceType::Queen => 'q',
+            chess_core::PieceType::Rook => 'r',
+            chess_core::PieceType::Bishop => 'b',
+            chess_core::PieceType::Knight => 'n',
             _ => unreachable!(),
         });
     }

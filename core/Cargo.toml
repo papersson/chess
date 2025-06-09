@@ -1,0 +1,10 @@
+[package]
+name = "chess-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+
+[lib]
+name = "chess_core"
+path = "src/lib.rs"

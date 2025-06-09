@@ -1,6 +1,5 @@
-use crate::game_state::GameState;
-use crate::move_gen::generate_legal_moves;
-use crate::types::Move;
+use crate::evaluation::Evaluatable;
+use chess_core::{generate_legal_moves, GameState, Move};
 use std::time::{Duration, Instant};
 
 const INFINITY: i32 = 1_000_000;

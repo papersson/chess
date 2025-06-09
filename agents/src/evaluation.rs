@@ -1,5 +1,20 @@
-use crate::game_state::GameState;
-use crate::types::*;
+use chess_core::{Color, GameState, PieceType, Square};
+
+/// Extension trait to add evaluation methods to GameState
+pub trait Evaluatable {
+    fn evaluate(&self) -> i32;
+    fn evaluate_absolute(&self) -> i32;
+}
+
+impl Evaluatable for GameState {
+    fn evaluate(&self) -> i32 {
+        evaluate(self)
+    }
+
+    fn evaluate_absolute(&self) -> i32 {
+        evaluate_absolute(self)
+    }
+}
 
 /// Evaluates a chess position from the perspective of the side to move.
 /// Returns a score in centipawns where positive values favor the side to move.
@@ -227,7 +242,7 @@ const KING_TABLE: [[i32; 8]; 8] = [
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{File, Rank, Square};
+    use chess_core::{File, Rank, Square, Piece};
 
     #[test]
     fn test_material_count() {

@@ -272,7 +272,11 @@ fn castling_to_fen(castling: CastlingRights) -> String {
         s.push('q');
     }
 
-    if s.is_empty() { "-".to_string() } else { s }
+    if s.is_empty() {
+        "-".to_string()
+    } else {
+        s
+    }
 }
 
 /// Parses en passant square from FEN notation.

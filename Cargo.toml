@@ -1,6 +1,9 @@
-[package]
-name = "chess"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = ["core", "agents", "chess"]
+resolver = "2"
 
-[dependencies]
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]

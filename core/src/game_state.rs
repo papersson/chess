@@ -1,7 +1,6 @@
 use crate::board::*;
 /// Complete game state including board, turn, castling rights, etc.
 /// This module provides the main interface for chess game management.
-use crate::evaluation;
 use crate::types::*;
 
 /// Complete state of a chess game, matching FEN components.
@@ -392,18 +391,6 @@ impl GameState {
         let king_square = self.board.array_board.king_square(color);
         self.is_attacked_by(king_square, color.opponent())
     }
-
-    /// Evaluates the current position from the perspective of the side to move.
-    /// Returns a score in centipawns where positive values favor the side to move.
-    pub fn evaluate(&self) -> i32 {
-        evaluation::evaluate(self)
-    }
-
-    /// Evaluates the position from White's perspective.
-    /// Positive scores favor White, negative favor Black.
-    pub fn evaluate_absolute(&self) -> i32 {
-        evaluation::evaluate_absolute(self)
-    }
 }
 
 /// Helper struct for counting material.
@@ -491,6 +478,7 @@ mod tests {
         assert!(state.is_attacked_by(Square::from_index(31).unwrap(), Color::White)); // h4
 
         // Check that diagonal squares are not attacked
-        assert!(!state.is_attacked_by(Square::from_index(35).unwrap(), Color::White)); // d5
+        assert!(!state.is_attacked_by(Square::from_index(35).unwrap(), Color::White));
+        // d5
     }
 }

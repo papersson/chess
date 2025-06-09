@@ -98,11 +98,16 @@ impl File {
     ///
     /// # Example
     /// ```
+    /// use chess_core::File;
     /// assert_eq!(File::new(0), Some(File::from_char('a').unwrap()));
     /// assert_eq!(File::new(8), None);
     /// ```
     pub const fn new(index: u8) -> Option<Self> {
-        if index < 8 { Some(File(index)) } else { None }
+        if index < 8 {
+            Some(File(index))
+        } else {
+            None
+        }
     }
 
     /// Parses file from chess notation ('a'-'h').
@@ -110,7 +115,8 @@ impl File {
     ///
     /// # Example
     /// ```
-    /// assert_eq!(File::from_char('e'), Some(File(4)));
+    /// use chess_core::File;
+    /// assert_eq!(File::from_char('e').unwrap().index(), 4);
     /// assert_eq!(File::from_char('z'), None);
     /// ```
     pub const fn from_char(c: char) -> Option<Self> {
@@ -144,6 +150,7 @@ impl File {
     ///
     /// # Example
     /// ```
+    /// use chess_core::File;
     /// let e_file = File::from_char('e').unwrap();
     /// assert_eq!(e_file.offset(1).unwrap().to_char(), 'f');
     /// assert_eq!(e_file.offset(-5), None); // would be off-board
@@ -166,7 +173,11 @@ impl Rank {
     /// Creates rank from index 0-7 (1-8).
     /// Returns None if index is out of range.
     pub const fn new(index: u8) -> Option<Self> {
-        if index < 8 { Some(Rank(index)) } else { None }
+        if index < 8 {
+            Some(Rank(index))
+        } else {
+            None
+        }
     }
 
     /// Parses rank from chess notation ('1'-'8').

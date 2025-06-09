@@ -1,8 +1,5 @@
-/// Type-safe move generation with compile-time guarantees.
-/// This module generates all legal moves for a position.
-use crate::board::BitBoardSet;
 use crate::game_state::GameState;
-use crate::types::{Color, File, Move, Piece, PieceType, Rank, Square};
+use crate::types::{Color, File, Move, PieceType, Rank, Square};
 
 /// A list of moves with a fixed capacity to avoid allocations.
 pub struct MoveList {
@@ -416,6 +413,8 @@ pub fn is_stalemate(state: &GameState) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::board::BitBoardSet;
+    use crate::types::Piece;
 
     #[test]
     fn test_starting_position_moves() {
