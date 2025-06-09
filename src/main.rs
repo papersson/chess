@@ -1,4 +1,5 @@
 mod board;
+mod evaluation;
 mod fen;
 mod game_state;
 mod move_gen;
@@ -72,11 +73,40 @@ fn main() {
             }
             Err(e) => eprintln!("Error parsing FEN: {}", e),
         }
+    } else if args.len() > 1 && args[1] == "eval" {
+        // Evaluate position
+        let state = if args.len() > 2 {
+            match GameState::from_fen(&args[2]) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Error parsing FEN: {}", e);
+                    return;
+                }
+            }
+        } else {
+            GameState::new()
+        };
+
+        println!("Position: {}", state.to_fen());
+        println!("Evaluation: {} cp", state.evaluate());
+        println!(
+            "(from {}'s perspective)",
+            if state.turn == types::Color::White {
+                "White"
+            } else {
+                "Black"
+            }
+        );
+        println!(
+            "Absolute eval: {} cp (+ = White, - = Black)",
+            state.evaluate_absolute()
+        );
     } else {
         println!("Chess engine");
         println!("Commands:");
         println!("  perft <depth> [fen]  - Run perft test");
         println!("  fen <fen_string>     - Parse and display FEN position");
+        println!("  eval [fen]           - Evaluate position");
         println!("\nExample FEN positions:");
         println!("  Starting: {}", positions::STARTING);
         println!("  Kiwipete: {}", positions::KIWIPETE);
