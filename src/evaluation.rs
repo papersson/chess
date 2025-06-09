@@ -46,7 +46,7 @@ fn evaluate_material(state: &GameState, color: Color) -> i32 {
         if let Some(square) = Square::from_index(i) {
             if let Some(piece) = state.board.piece_at(square) {
                 if piece.color == color {
-                    material += piece.piece_type.value() as i32;
+                    material += i32::from(piece.piece_type.value());
                 }
             }
         }

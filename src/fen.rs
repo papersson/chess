@@ -7,7 +7,6 @@ use std::fmt;
 
 /// FEN (Forsyth-Edwards Notation) parsing and serialization.
 /// Standard notation for describing chess positions.
-
 /// FEN parsing error types.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FenError {
@@ -23,13 +22,13 @@ pub enum FenError {
 impl fmt::Display for FenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            FenError::InvalidFormat(s) => write!(f, "Invalid FEN format: {}", s),
-            FenError::InvalidPiece(c) => write!(f, "Invalid piece character: '{}'", c),
-            FenError::InvalidSquare(s) => write!(f, "Invalid square: {}", s),
-            FenError::InvalidColor(s) => write!(f, "Invalid color: {}", s),
-            FenError::InvalidCastling(s) => write!(f, "Invalid castling rights: {}", s),
-            FenError::InvalidEnPassant(s) => write!(f, "Invalid en passant square: {}", s),
-            FenError::InvalidNumber(s) => write!(f, "Invalid number: {}", s),
+            FenError::InvalidFormat(s) => write!(f, "Invalid FEN format: {s}"),
+            FenError::InvalidPiece(c) => write!(f, "Invalid piece character: '{c}'"),
+            FenError::InvalidSquare(s) => write!(f, "Invalid square: {s}"),
+            FenError::InvalidColor(s) => write!(f, "Invalid color: {s}"),
+            FenError::InvalidCastling(s) => write!(f, "Invalid castling rights: {s}"),
+            FenError::InvalidEnPassant(s) => write!(f, "Invalid en passant square: {s}"),
+            FenError::InvalidNumber(s) => write!(f, "Invalid number: {s}"),
         }
     }
 }

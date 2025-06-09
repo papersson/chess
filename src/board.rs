@@ -138,13 +138,13 @@ impl Board {
 
     /// Returns true if the given square contains a piece of the given color.
     pub fn is_color(&self, square: Square, color: Color) -> bool {
-        self.piece_at(square).map_or(false, |p| p.color == color)
+        self.piece_at(square).is_some_and(|p| p.color == color)
     }
 
     /// Returns true if the given square contains an enemy piece.
     pub fn is_enemy(&self, square: Square, color: Color) -> bool {
         self.piece_at(square)
-            .map_or(false, |p| p.color == color.opponent())
+            .is_some_and(|p| p.color == color.opponent())
     }
 
     /// Finds the king square for the given color.
@@ -159,7 +159,7 @@ impl Board {
                 }
             }
         }
-        panic!("No king found for color {:?}", color);
+        panic!("No king found for color {color:?}");
     }
 }
 

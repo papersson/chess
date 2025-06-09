@@ -136,16 +136,21 @@ pub mod positions {
         (1, 20),
         (2, 400),
         (3, 8902),
-        (4, 197281),
-        (5, 4865609),
-        (6, 119060324),
+        (4, 197_281),
+        (5, 4_865_609),
+        (6, 119_060_324),
     ];
 
     /// Position after 1.e4 (Kiwipete).
     pub const KIWIPETE: &str =
         "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
-    pub const KIWIPETE_PERFT: &[(u8, u64)] =
-        &[(1, 48), (2, 2039), (3, 97862), (4, 4085603), (5, 193690690)];
+    pub const KIWIPETE_PERFT: &[(u8, u64)] = &[
+        (1, 48),
+        (2, 2039),
+        (3, 97_862),
+        (4, 4_085_603),
+        (5, 193_690_690),
+    ];
 
     /// Position 3 from CPW.
     pub const POSITION_3: &str = "8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1";
@@ -154,19 +159,24 @@ pub mod positions {
         (2, 191),
         (3, 2812),
         (4, 43238),
-        (5, 674624),
-        (6, 11030083),
+        (5, 674_624),
+        (6, 11_030_083),
     ];
 
     /// Position 4 from CPW.
     pub const POSITION_4: &str = "r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1";
     pub const POSITION_4_PERFT: &[(u8, u64)] =
-        &[(1, 6), (2, 264), (3, 9467), (4, 422333), (5, 15833292)];
+        &[(1, 6), (2, 264), (3, 9467), (4, 422_333), (5, 15_833_292)];
 
     /// Position 5 from CPW.
     pub const POSITION_5: &str = "rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8";
-    pub const POSITION_5_PERFT: &[(u8, u64)] =
-        &[(1, 44), (2, 1486), (3, 62379), (4, 2103487), (5, 89941194)];
+    pub const POSITION_5_PERFT: &[(u8, u64)] = &[
+        (1, 44),
+        (2, 1486),
+        (3, 62_379),
+        (4, 2_103_487),
+        (5, 89_941_194),
+    ];
 }
 
 // Import functions from move_gen that are needed
