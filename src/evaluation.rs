@@ -312,15 +312,15 @@ mod tests {
         // Test with a more straightforward position
         let fen = "8/8/8/3p4/4P3/8/8/8 w - - 0 1";
         let mut state = GameState::from_fen(fen).unwrap();
-        
+
         // Add kings to make it a legal position
         state.board.set_square(
             Square::new(File::new(0).unwrap(), Rank::new(0).unwrap()),
-            Some(Piece::new(PieceType::King, Color::White))
+            Some(Piece::new(PieceType::King, Color::White)),
         );
         state.board.set_square(
             Square::new(File::new(7).unwrap(), Rank::new(7).unwrap()),
-            Some(Piece::new(PieceType::King, Color::Black))
+            Some(Piece::new(PieceType::King, Color::Black)),
         );
 
         let eval = evaluate_absolute(&state);

@@ -6,6 +6,7 @@ mod move_gen;
 mod perft;
 mod search;
 mod types;
+mod uci;
 
 use fen::positions;
 use game_state::GameState;
@@ -15,6 +16,13 @@ use std::env;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+
+    // Check if running in UCI mode
+    if args.len() > 1 && args[1] == "uci" {
+        let mut engine = uci::UciEngine::new();
+        engine.run();
+        return;
+    }
 
     if args.len() > 1 && args[1] == "perft" {
         if args.len() < 3 {
@@ -201,6 +209,7 @@ fn main() {
     } else {
         println!("Chess engine");
         println!("Commands:");
+        println!("  uci                  - Run in UCI mode for GUI compatibility");
         println!("  perft <depth> [fen]  - Run perft test");
         println!("  fen <fen_string>     - Parse and display FEN position");
         println!("  eval [fen]           - Evaluate position");
