@@ -296,6 +296,12 @@ impl BoardState {
         captured
     }
 
+    /// Sets a piece at the given square.
+    pub fn set_square(&mut self, square: Square, piece: Option<Piece>) {
+        self.array_board.set_piece(square, piece);
+        self.bitboards = BitBoardSet::from_board(&self.array_board);
+    }
+
     /// Returns true if the representations are consistent.
     /// Useful for debugging and testing.
     #[cfg(debug_assertions)]

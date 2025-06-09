@@ -1,9 +1,11 @@
 mod board;
+mod fen;
 mod game_state;
 mod move_gen;
 mod perft;
 mod types;
 
+use fen::positions;
 use game_state::GameState;
 use perft::{perft, perft_divide};
 use std::env;
@@ -13,14 +15,27 @@ fn main() {
 
     if args.len() > 1 && args[1] == "perft" {
         if args.len() < 3 {
-            println!("Usage: {} perft <depth>", args[0]);
+            println!("Usage: {} perft <depth> [fen]", args[0]);
             return;
         }
 
         let depth: u8 = args[2].parse().unwrap_or(1);
-        let state = GameState::new();
 
-        println!("Running perft({}) on starting position...", depth);
+        // Parse optional FEN or use starting position
+        let state = if args.len() > 3 {
+            match GameState::from_fen(&args[3]) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Error parsing FEN: {}", e);
+                    return;
+                }
+            }
+        } else {
+            GameState::new()
+        };
+
+        println!("Running perft({})...", depth);
+        println!("Position: {}", state.to_fen());
 
         if depth <= 3 {
             // Show move breakdown for shallow depths
@@ -43,9 +58,27 @@ fn main() {
             println!("Time: {:.2}s", elapsed.as_secs_f64());
             println!("NPS: {:.0}", nodes as f64 / elapsed.as_secs_f64());
         }
+    } else if args.len() > 1 && args[1] == "fen" {
+        // Display position from FEN
+        if args.len() < 3 {
+            println!("Usage: {} fen <fen_string>", args[0]);
+            return;
+        }
+
+        match GameState::from_fen(&args[2]) {
+            Ok(state) => {
+                println!("Parsed FEN: {}", state.to_fen());
+                // TODO: Add board display
+            }
+            Err(e) => eprintln!("Error parsing FEN: {}", e),
+        }
     } else {
         println!("Chess engine");
         println!("Commands:");
-        println!("  perft <depth>  - Run perft test");
+        println!("  perft <depth> [fen]  - Run perft test");
+        println!("  fen <fen_string>     - Parse and display FEN position");
+        println!("\nExample FEN positions:");
+        println!("  Starting: {}", positions::STARTING);
+        println!("  Kiwipete: {}", positions::KIWIPETE);
     }
 }
