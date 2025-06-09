@@ -1,6 +1,5 @@
 /// Type-safe move generation with compile-time guarantees.
 /// This module generates all legal moves for a position.
-
 use crate::board::BitBoardSet;
 use crate::game_state::GameState;
 use crate::types::{Color, File, Move, Piece, PieceType, Rank, Square};

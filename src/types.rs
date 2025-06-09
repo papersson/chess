@@ -20,16 +20,16 @@ impl Color {
     /// White pawns begin near the bottom of the board, Black pawns near the top.
     pub const fn pawn_rank(self) -> Rank {
         match self {
-            Color::White => Rank::Second,
-            Color::Black => Rank::Seventh,
+            Color::White => Rank::SECOND,
+            Color::Black => Rank::SEVENTH,
         }
     }
 
     /// Promotion rank for this color's pawns (8th for White, 1st for Black).
     pub const fn promotion_rank(self) -> Rank {
         match self {
-            Color::White => Rank::Eighth,
-            Color::Black => Rank::First,
+            Color::White => Rank::EIGHTH,
+            Color::Black => Rank::FIRST,
         }
     }
 
@@ -95,7 +95,7 @@ pub struct File(u8);
 impl File {
     /// Creates file from index 0-7 (a-h).
     /// Useful for programmatic file generation and array-based board representations.
-    /// 
+    ///
     /// # Example
     /// ```
     /// assert_eq!(File::new(0), Some(File::from_char('a').unwrap()));
@@ -107,7 +107,7 @@ impl File {
 
     /// Parses file from chess notation ('a'-'h').
     /// Core functionality for reading algebraic notation like "e4", "Nf3", "O-O".
-    /// 
+    ///
     /// # Example
     /// ```
     /// assert_eq!(File::from_char('e'), Some(File(4)));
@@ -141,7 +141,7 @@ impl File {
     /// File offset by `delta` steps, or `None` if off-board.
     /// Positive delta moves right (toward 'h'), negative moves left (toward 'a').
     /// Important for calculating piece movements, especially knights and diagonal captures.
-    /// 
+    ///
     /// # Example
     /// ```
     /// let e_file = File::from_char('e').unwrap();
@@ -207,14 +207,14 @@ impl Rank {
 
 /// Rank constants for readability.
 impl Rank {
-    pub const First: Rank = Rank(0);
-    pub const Second: Rank = Rank(1);
-    pub const Third: Rank = Rank(2);
-    pub const Fourth: Rank = Rank(3);
-    pub const Fifth: Rank = Rank(4);
-    pub const Sixth: Rank = Rank(5);
-    pub const Seventh: Rank = Rank(6);
-    pub const Eighth: Rank = Rank(7);
+    pub const FIRST: Rank = Rank(0);
+    pub const SECOND: Rank = Rank(1);
+    pub const THIRD: Rank = Rank(2);
+    pub const FOURTH: Rank = Rank(3);
+    pub const FIFTH: Rank = Rank(4);
+    pub const SIXTH: Rank = Rank(5);
+    pub const SEVENTH: Rank = Rank(6);
+    pub const EIGHTH: Rank = Rank(7);
 }
 
 /// Board square (file + rank).
@@ -275,7 +275,11 @@ impl Square {
             other.rank().0 - self.rank().0
         };
 
-        if file_diff > rank_diff { file_diff } else { rank_diff }
+        if file_diff > rank_diff {
+            file_diff
+        } else {
+            rank_diff
+        }
     }
 }
 
@@ -414,6 +418,28 @@ impl Move {
     /// Returns true if this is a castling move based on king movement.
     pub fn is_castle(self, piece: Piece) -> bool {
         piece.piece_type == PieceType::King && self.from.distance(self.to) == 2
+    }
+
+    /// Returns true if this is a pawn promotion.
+    pub const fn is_promotion(self) -> bool {
+        self.promotion.is_some()
+    }
+}
+
+impl fmt::Display for Move {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(promo) = self.promotion {
+            let promo_char = match promo {
+                PieceType::Queen => 'q',
+                PieceType::Rook => 'r',
+                PieceType::Bishop => 'b',
+                PieceType::Knight => 'n',
+                _ => '?', // Should never happen
+            };
+            write!(f, "{}{}={}", self.from, self.to, promo_char)
+        } else {
+            write!(f, "{}{}", self.from, self.to)
+        }
     }
 }
 
