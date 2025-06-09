@@ -129,7 +129,6 @@ pub fn perft_detailed(state: &GameState, depth: u8) -> PerftResults {
 
 /// Standard perft positions with expected results.
 pub mod positions {
-    
 
     /// Starting position perft values.
     pub const STARTING_POSITION: &[(u8, u64)] = &[

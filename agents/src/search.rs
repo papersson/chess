@@ -1,5 +1,7 @@
 use crate::evaluation::Evaluatable;
+use crate::transposition::{NodeType, TranspositionTable};
 use chess_core::{generate_legal_moves, GameState, Move};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const INFINITY: i32 = 1_000_000;
@@ -57,26 +59,33 @@ struct SearchInfo {
     nodes: u64,
     stopped: bool,
     info_callback: Option<InfoCallback>,
+    tt: Arc<TranspositionTable>,
 }
 
 impl SearchInfo {
-    fn new(limits: SearchLimits) -> Self {
+    fn new(limits: SearchLimits, tt: Arc<TranspositionTable>) -> Self {
         Self {
             start_time: Instant::now(),
             limits,
             nodes: 0,
             stopped: false,
             info_callback: None,
+            tt,
         }
     }
 
-    fn with_callback(limits: SearchLimits, callback: InfoCallback) -> Self {
+    fn with_callback(
+        limits: SearchLimits,
+        callback: InfoCallback,
+        tt: Arc<TranspositionTable>,
+    ) -> Self {
         Self {
             start_time: Instant::now(),
             limits,
             nodes: 0,
             stopped: false,
             info_callback: Some(callback),
+            tt,
         }
     }
 
@@ -111,8 +120,19 @@ pub fn search(state: &GameState, depth: u8) -> SearchResult {
     search_with_limits(state, SearchLimits::depth(depth))
 }
 
+pub fn search_with_tt_size(
+    state: &GameState,
+    limits: SearchLimits,
+    tt_size_mb: usize,
+) -> SearchResult {
+    let tt = Arc::new(TranspositionTable::new(tt_size_mb));
+    let mut info = SearchInfo::new(limits, tt);
+    search_internal(state, &mut info)
+}
+
 pub fn search_with_limits(state: &GameState, limits: SearchLimits) -> SearchResult {
-    let mut info = SearchInfo::new(limits);
+    let tt = Arc::new(TranspositionTable::new(16)); // 16 MB default
+    let mut info = SearchInfo::new(limits, tt);
     search_internal(state, &mut info)
 }
 
@@ -121,7 +141,8 @@ pub fn search_with_callback(
     limits: SearchLimits,
     callback: InfoCallback,
 ) -> SearchResult {
-    let mut info = SearchInfo::with_callback(limits, callback);
+    let tt = Arc::new(TranspositionTable::new(16)); // 16 MB default
+    let mut info = SearchInfo::with_callback(limits, callback, tt);
     search_internal(state, &mut info)
 }
 
@@ -217,9 +238,53 @@ fn alpha_beta(
         return (0, None, vec![]);
     }
 
+    let original_alpha = alpha;
+    let hash = state.zobrist_hash();
+    let mut tt_move = None;
+
+    // Probe transposition table
+    if let Some(entry) = info.tt.probe(hash) {
+        if entry.depth >= depth {
+            // Can we use the stored score?
+            match entry.node_type {
+                NodeType::Exact => {
+                    // Exact score - we can return immediately
+                    return (
+                        entry.score,
+                        entry.best_move,
+                        vec![entry.best_move.unwrap_or(Move::new(
+                            chess_core::Square::from_index(0).unwrap(),
+                            chess_core::Square::from_index(0).unwrap(),
+                        ))],
+                    );
+                }
+                NodeType::LowerBound => {
+                    // Score is at least entry.score
+                    alpha = alpha.max(entry.score);
+                }
+                NodeType::UpperBound => {
+                    // Score is at most entry.score
+                    // We can use beta cutoff instead of modifying beta
+                    if entry.score <= alpha {
+                        return (entry.score, entry.best_move, vec![]);
+                    }
+                }
+            }
+
+            // Alpha-beta cutoff
+            if alpha >= beta {
+                return (entry.score, entry.best_move, vec![]);
+            }
+        }
+        // Save the best move from TT for move ordering
+        tt_move = entry.best_move;
+    }
+
     // Terminal node - return evaluation
     if depth == 0 {
-        return (state.evaluate(), None, vec![]);
+        let score = state.evaluate();
+        info.tt.store(hash, None, score, 0, NodeType::Exact);
+        return (score, None, vec![]);
     }
 
     // Generate all legal moves
@@ -242,8 +307,8 @@ fn alpha_beta(
     // Convert to vector for sorting
     let mut moves_vec: Vec<Move> = moves.iter().copied().collect();
 
-    // Order moves for better pruning (captures first)
-    order_moves(state, &mut moves_vec);
+    // Order moves for better pruning (TT move first, then captures)
+    order_moves_with_tt(state, &mut moves_vec, tt_move);
 
     let mut best_move = None;
     let mut best_score = -INFINITY;
@@ -279,19 +344,33 @@ fn alpha_beta(
         }
     }
 
+    // Store in transposition table
+    let node_type = if best_score <= original_alpha {
+        NodeType::UpperBound
+    } else if best_score >= beta {
+        NodeType::LowerBound
+    } else {
+        NodeType::Exact
+    };
+
+    info.tt.store(hash, best_move, best_score, depth, node_type);
+
     (best_score, best_move, best_pv)
 }
 
 fn order_moves(state: &GameState, moves: &mut [Move]) {
-    // Simple move ordering: captures first
-    // In the future, we can add:
-    // - MVV-LVA (Most Valuable Victim - Least Valuable Attacker)
-    // - Killer moves
-    // - History heuristic
-    // - Hash move
+    order_moves_with_tt(state, moves, None);
+}
 
+fn order_moves_with_tt(state: &GameState, moves: &mut [Move], tt_move: Option<Move>) {
+    // Move ordering: TT move first, then captures, then promotions
     moves.sort_by_cached_key(|mv| {
         let mut score = 0;
+
+        // TT move gets highest priority
+        if tt_move == Some(*mv) {
+            return -10000;
+        }
 
         // Prioritize captures
         if state.board.piece_at(mv.to).is_some() {

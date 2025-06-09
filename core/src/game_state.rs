@@ -2,6 +2,7 @@ use crate::board::*;
 /// Complete game state including board, turn, castling rights, etc.
 /// This module provides the main interface for chess game management.
 use crate::types::*;
+use crate::zobrist::ZOBRIST;
 
 /// Complete state of a chess game, matching FEN components.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -390,6 +391,31 @@ impl GameState {
     pub fn is_side_in_check(&self, color: Color) -> bool {
         let king_square = self.board.array_board.king_square(color);
         self.is_attacked_by(king_square, color.opponent())
+    }
+
+    /// Computes the Zobrist hash for this position.
+    /// This hash uniquely identifies the position for transposition table lookups.
+    pub fn zobrist_hash(&self) -> u64 {
+        let mut hash = 0u64;
+
+        // Hash all pieces
+        for square_idx in 0..64 {
+            let square = Square::from_index(square_idx).unwrap();
+            if let Some(piece) = self.board.piece_at(square) {
+                hash ^= ZOBRIST.piece_square_key(piece, square);
+            }
+        }
+
+        // Hash side to move
+        hash ^= ZOBRIST.side_to_move_key(self.turn);
+
+        // Hash castling rights
+        hash ^= ZOBRIST.castling_key(self.castling);
+
+        // Hash en passant square
+        hash ^= ZOBRIST.en_passant_key(self.en_passant);
+
+        hash
     }
 }
 

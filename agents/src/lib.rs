@@ -2,6 +2,7 @@ pub mod evaluation;
 pub mod minimax;
 pub mod random;
 pub mod search;
+pub mod transposition;
 
 use chess_core::{GameState, Move};
 

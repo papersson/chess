@@ -4,6 +4,7 @@ pub mod game_state;
 pub mod move_gen;
 pub mod perft;
 pub mod types;
+pub mod zobrist;
 
 pub use board::*;
 pub use fen::{positions, FenError};

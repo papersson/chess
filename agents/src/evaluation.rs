@@ -242,7 +242,7 @@ const KING_TABLE: [[i32; 8]; 8] = [
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chess_core::{File, Rank, Square, Piece};
+    use chess_core::{File, Piece, Rank, Square};
 
     #[test]
     fn test_material_count() {
