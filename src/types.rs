@@ -1,6 +1,6 @@
 use std::fmt;
 
-/// Represents one of the two players in chess.
+/// Chess player color.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Color {
     White,
@@ -16,7 +16,8 @@ impl Color {
         }
     }
 
-    /// Returns the starting rank for pawns of this color.
+    /// Starting rank for this color's pawns (2nd for White, 7th for Black).
+    /// White pawns begin near the bottom of the board, Black pawns near the top.
     pub const fn pawn_rank(self) -> Rank {
         match self {
             Color::White => Rank::Second,
@@ -24,7 +25,7 @@ impl Color {
         }
     }
 
-    /// Returns the promotion rank for pawns of this color.
+    /// Promotion rank for this color's pawns (8th for White, 1st for Black).
     pub const fn promotion_rank(self) -> Rank {
         match self {
             Color::White => Rank::Eighth,
@@ -32,7 +33,8 @@ impl Color {
         }
     }
 
-    /// Returns the direction pawns of this color move.
+    /// Pawn movement direction (+1 for White, -1 for Black).
+    /// Pawns are unique in chess - they can only move toward the opponent's side.
     pub const fn pawn_direction(self) -> i8 {
         match self {
             Color::White => 1,
@@ -41,8 +43,7 @@ impl Color {
     }
 }
 
-/// The six types of chess pieces.
-/// Using an enum ensures only valid piece types can exist.
+/// Chess piece types.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum PieceType {
     Pawn,
@@ -54,7 +55,7 @@ pub enum PieceType {
 }
 
 impl PieceType {
-    /// Returns the material value of this piece type in centipawns.
+    /// Material value in centipawns.
     pub const fn value(self) -> u16 {
         match self {
             PieceType::Pawn => 100,
@@ -66,14 +67,13 @@ impl PieceType {
         }
     }
 
-    /// Returns true if this piece type can slide (bishop, rook, queen).
+    /// True for sliding pieces (bishop, rook, queen).
     pub const fn is_slider(self) -> bool {
         matches!(self, PieceType::Bishop | PieceType::Rook | PieceType::Queen)
     }
 }
 
-/// A chess piece with both type and color.
-/// This ensures every piece has valid attributes.
+/// Chess piece with type and color.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct Piece {
     pub piece_type: PieceType,
@@ -81,25 +81,38 @@ pub struct Piece {
 }
 
 impl Piece {
-    /// Creates a new piece with the given type and color.
+    /// Creates a piece.
     pub const fn new(piece_type: PieceType, color: Color) -> Self {
         Self { piece_type, color }
     }
 }
 
-/// A file on the chess board (a-h).
-/// Using a newtype ensures type safety and valid range.
+/// Board file (a-h columns).
+/// Files are the vertical columns that, combined with ranks, uniquely identify every square.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct File(u8);
 
 impl File {
-    /// Creates a new file from index (0-7).
-    /// Returns None if index is out of range.
+    /// Creates file from index 0-7 (a-h).
+    /// Useful for programmatic file generation and array-based board representations.
+    /// 
+    /// # Example
+    /// ```
+    /// assert_eq!(File::new(0), Some(File::from_char('a').unwrap()));
+    /// assert_eq!(File::new(8), None);
+    /// ```
     pub const fn new(index: u8) -> Option<Self> {
         if index < 8 { Some(File(index)) } else { None }
     }
 
-    /// Creates a file from a character ('a'-'h').
+    /// Parses file from chess notation ('a'-'h').
+    /// Core functionality for reading algebraic notation like "e4", "Nf3", "O-O".
+    /// 
+    /// # Example
+    /// ```
+    /// assert_eq!(File::from_char('e'), Some(File(4)));
+    /// assert_eq!(File::from_char('z'), None);
+    /// ```
     pub const fn from_char(c: char) -> Option<Self> {
         match c {
             'a' => Some(File(0)),
@@ -114,17 +127,27 @@ impl File {
         }
     }
 
-    /// Returns the file as a character ('a'-'h').
+    /// Converts to chess notation character ('a'-'h').
     pub const fn to_char(self) -> char {
         (b'a' + self.0) as char
     }
 
-    /// Returns the file index (0-7).
+    /// Zero-based index (0=a, 1=b, ..., 7=h).
+    /// Enables efficient array indexing and bitboard operations.
     pub const fn index(self) -> u8 {
         self.0
     }
 
-    /// Returns the adjacent file in the given direction, if valid.
+    /// File offset by `delta` steps, or `None` if off-board.
+    /// Positive delta moves right (toward 'h'), negative moves left (toward 'a').
+    /// Important for calculating piece movements, especially knights and diagonal captures.
+    /// 
+    /// # Example
+    /// ```
+    /// let e_file = File::from_char('e').unwrap();
+    /// assert_eq!(e_file.offset(1).unwrap().to_char(), 'f');
+    /// assert_eq!(e_file.offset(-5), None); // would be off-board
+    /// ```
     pub const fn offset(self, delta: i8) -> Option<Self> {
         let new_file = self.0 as i8 + delta;
         if new_file >= 0 && new_file < 8 {
@@ -135,19 +158,18 @@ impl File {
     }
 }
 
-/// A rank on the chess board (1-8).
-/// Using a newtype ensures type safety and valid range.
+/// Board rank (1-8 rows).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Rank(u8);
 
 impl Rank {
-    /// Creates a new rank from index (0-7).
+    /// Creates rank from index 0-7 (1-8).
     /// Returns None if index is out of range.
     pub const fn new(index: u8) -> Option<Self> {
         if index < 8 { Some(Rank(index)) } else { None }
     }
 
-    /// Creates a rank from a digit ('1'-'8').
+    /// Parses rank from chess notation ('1'-'8').
     pub const fn from_char(c: char) -> Option<Self> {
         match c {
             '1' => Some(Rank(0)),
@@ -162,17 +184,17 @@ impl Rank {
         }
     }
 
-    /// Returns the rank as a character ('1'-'8').
+    /// Converts to chess notation character ('1'-'8').
     pub const fn to_char(self) -> char {
         (b'1' + self.0) as char
     }
 
-    /// Returns the rank index (0-7).
+    /// Zero-based index (0=1st, 1=2nd, ..., 7=8th).
     pub const fn index(self) -> u8 {
         self.0
     }
 
-    /// Returns the adjacent rank in the given direction, if valid.
+    /// Rank offset by `delta` steps, or `None` if off-board.
     pub const fn offset(self, delta: i8) -> Option<Self> {
         let new_rank = self.0 as i8 + delta;
         if new_rank >= 0 && new_rank < 8 {
@@ -195,18 +217,17 @@ impl Rank {
     pub const Eighth: Rank = Rank(7);
 }
 
-/// A square on the chess board.
-/// Using a newtype with u8 ensures memory efficiency while maintaining type safety.
+/// Board square (file + rank).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct Square(u8);
 
 impl Square {
-    /// Creates a new square from file and rank.
+    /// Creates square from file and rank.
     pub const fn new(file: File, rank: Rank) -> Self {
         Square(rank.0 * 8 + file.0)
     }
 
-    /// Creates a square from index (0-63).
+    /// Creates square from index 0-63.
     /// Returns None if index is out of range.
     pub const fn from_index(index: u8) -> Option<Self> {
         if index < 64 {
@@ -216,22 +237,22 @@ impl Square {
         }
     }
 
-    /// Returns the file of this square.
+    /// File of this square.
     pub const fn file(self) -> File {
         File(self.0 % 8)
     }
 
-    /// Returns the rank of this square.
+    /// Rank of this square.
     pub const fn rank(self) -> Rank {
         Rank(self.0 / 8)
     }
 
-    /// Returns the square index (0-63).
+    /// Square index (0-63).
     pub const fn index(self) -> u8 {
         self.0
     }
 
-    /// Returns the square color (light or dark).
+    /// Square color (alternating pattern).
     pub const fn color(self) -> Color {
         if (self.file().0 + self.rank().0) % 2 == 0 {
             Color::Black // Dark squares
@@ -240,7 +261,7 @@ impl Square {
         }
     }
 
-    /// Calculates Manhattan distance to another square.
+    /// Chebyshev distance (max of file/rank differences).
     pub const fn distance(self, other: Square) -> u8 {
         let file_diff = if self.file().0 > other.file().0 {
             self.file().0 - other.file().0
@@ -254,11 +275,7 @@ impl Square {
             other.rank().0 - self.rank().0
         };
 
-        if file_diff > rank_diff {
-            file_diff
-        } else {
-            rank_diff
-        }
+        if file_diff > rank_diff { file_diff } else { rank_diff }
     }
 }
 
@@ -268,7 +285,7 @@ impl fmt::Display for Square {
     }
 }
 
-/// Castling rights for a single side.
+/// Castling rights for one color.
 /// Using a struct with booleans ensures clear semantics.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct SideCastlingRights {
@@ -277,7 +294,7 @@ pub struct SideCastlingRights {
 }
 
 impl SideCastlingRights {
-    /// Creates new castling rights with both sides available.
+    /// Both castling rights available.
     pub const fn both() -> Self {
         Self {
             kingside: true,
@@ -285,7 +302,7 @@ impl SideCastlingRights {
         }
     }
 
-    /// Creates castling rights with no rights available.
+    /// No castling rights available.
     pub const fn none() -> Self {
         Self {
             kingside: false,
@@ -293,7 +310,7 @@ impl SideCastlingRights {
         }
     }
 
-    /// Returns true if any castling right is available.
+    /// True if any castling right remains.
     pub const fn any(self) -> bool {
         self.kingside || self.queenside
     }
@@ -307,7 +324,7 @@ pub struct CastlingRights {
 }
 
 impl CastlingRights {
-    /// Creates castling rights with all rights available.
+    /// All castling rights available.
     pub const fn all() -> Self {
         Self {
             white: SideCastlingRights::both(),
@@ -315,7 +332,7 @@ impl CastlingRights {
         }
     }
 
-    /// Creates castling rights with no rights available.
+    /// No castling rights available.
     pub const fn none() -> Self {
         Self {
             white: SideCastlingRights::none(),
@@ -323,7 +340,7 @@ impl CastlingRights {
         }
     }
 
-    /// Gets castling rights for a specific color.
+    /// Castling rights for a color.
     pub const fn get(self, color: Color) -> SideCastlingRights {
         match color {
             Color::White => self.white,
@@ -331,7 +348,7 @@ impl CastlingRights {
         }
     }
 
-    /// Updates castling rights when a piece moves from a square.
+    /// Updates rights after a move (handles king/rook moves and captures).
     pub fn update_after_move(self, from: Square, to: Square) -> Self {
         let mut rights = self;
 
@@ -366,7 +383,7 @@ impl CastlingRights {
     }
 }
 
-/// A chess move.
+/// Chess move from one square to another.
 /// Includes all information needed to make and unmake the move.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct Move {
@@ -376,7 +393,7 @@ pub struct Move {
 }
 
 impl Move {
-    /// Creates a normal move.
+    /// Normal move.
     pub const fn new(from: Square, to: Square) -> Self {
         Self {
             from,
@@ -385,7 +402,7 @@ impl Move {
         }
     }
 
-    /// Creates a promotion move.
+    /// Promotion move.
     pub const fn new_promotion(from: Square, to: Square, promotion: PieceType) -> Self {
         Self {
             from,
@@ -400,7 +417,7 @@ impl Move {
     }
 }
 
-/// A bitboard represents a set of squares using a 64-bit integer.
+/// Bitboard representing a set of squares.
 /// Each bit corresponds to a square on the board.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
 pub struct BitBoard(pub u64);
