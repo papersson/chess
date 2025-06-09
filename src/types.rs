@@ -254,7 +254,11 @@ impl Square {
             other.rank().0 - self.rank().0
         };
 
-        if file_diff > rank_diff { file_diff } else { rank_diff }
+        if file_diff > rank_diff {
+            file_diff
+        } else {
+            rank_diff
+        }
     }
 }
 
