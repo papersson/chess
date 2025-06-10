@@ -1,6 +1,7 @@
 use crate::evaluation::Evaluatable;
 use crate::transposition::{NodeType, TranspositionTable};
 use chess_core::{generate_legal_moves, GameState, Move};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -93,6 +94,7 @@ struct SearchInfo {
     limits: SearchLimits,
     nodes: u64,
     stopped: bool,
+    stop_flag: Arc<AtomicBool>,
     info_callback: Option<InfoCallback>,
     tt: Arc<TranspositionTable>,
     quiescence_depth: i8,
@@ -105,6 +107,24 @@ impl SearchInfo {
             limits,
             nodes: 0,
             stopped: false,
+            stop_flag: Arc::new(AtomicBool::new(false)),
+            info_callback: None,
+            tt,
+            quiescence_depth: QUIESCENCE_DEPTH,
+        }
+    }
+
+    fn new_with_stop_flag(
+        limits: SearchLimits,
+        tt: Arc<TranspositionTable>,
+        stop_flag: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            start_time: Instant::now(),
+            limits,
+            nodes: 0,
+            stopped: false,
+            stop_flag,
             info_callback: None,
             tt,
             quiescence_depth: QUIESCENCE_DEPTH,
@@ -121,6 +141,25 @@ impl SearchInfo {
             limits,
             nodes: 0,
             stopped: false,
+            stop_flag: Arc::new(AtomicBool::new(false)),
+            info_callback: Some(callback),
+            tt,
+            quiescence_depth: QUIESCENCE_DEPTH,
+        }
+    }
+
+    fn with_callback_and_stop_flag(
+        limits: SearchLimits,
+        callback: InfoCallback,
+        tt: Arc<TranspositionTable>,
+        stop_flag: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            start_time: Instant::now(),
+            limits,
+            nodes: 0,
+            stopped: false,
+            stop_flag,
             info_callback: Some(callback),
             tt,
             quiescence_depth: QUIESCENCE_DEPTH,
@@ -129,6 +168,12 @@ impl SearchInfo {
 
     fn should_stop(&mut self) -> bool {
         if self.stopped {
+            return true;
+        }
+
+        // Check if stop command was issued
+        if self.stop_flag.load(Ordering::Relaxed) {
+            self.stopped = true;
             return true;
         }
 
@@ -181,6 +226,17 @@ pub fn search_with_callback(
 ) -> SearchResult {
     let tt = Arc::new(TranspositionTable::new(16)); // 16 MB default
     let mut info = SearchInfo::with_callback(limits, callback, tt);
+    search_internal(state, &mut info)
+}
+
+pub fn search_with_callback_and_stop(
+    state: &GameState,
+    limits: SearchLimits,
+    callback: InfoCallback,
+    stop_flag: Arc<AtomicBool>,
+) -> SearchResult {
+    let tt = Arc::new(TranspositionTable::new(16)); // 16 MB default
+    let mut info = SearchInfo::with_callback_and_stop_flag(limits, callback, tt, stop_flag);
     search_internal(state, &mut info)
 }
 

@@ -1,11 +1,16 @@
-use chess_agents::{search_with_callback, SearchLimits, SearchProgress};
+use chess_agents::{search_with_callback_and_stop, SearchLimits, SearchProgress};
 use chess_core::{GameState, Move};
 use std::io::{self, BufRead, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread;
 use std::time::Duration;
 
 pub struct UciEngine {
     position: GameState,
     debug: bool,
+    stop_flag: Arc<AtomicBool>,
+    search_thread: Option<thread::JoinHandle<()>>,
 }
 
 impl UciEngine {
@@ -13,6 +18,8 @@ impl UciEngine {
         Self {
             position: GameState::new(),
             debug: false,
+            stop_flag: Arc::new(AtomicBool::new(false)),
+            search_thread: None,
         }
     }
 
@@ -57,9 +64,10 @@ impl UciEngine {
                     self.handle_go(&parts);
                 }
                 "stop" => {
-                    // In the future, implement stopping ongoing search
+                    self.handle_stop();
                 }
                 "quit" => {
+                    self.handle_stop(); // Stop any ongoing search
                     break;
                 }
                 _ => {
@@ -124,7 +132,7 @@ impl UciEngine {
         }
     }
 
-    fn handle_go(&self, parts: &[&str]) {
+    fn handle_go(&mut self, parts: &[&str]) {
         let mut limits = SearchLimits {
             max_depth: None,
             move_time: None,
@@ -238,41 +246,55 @@ impl UciEngine {
             limits.max_depth = Some(6);
         }
 
-        // Run search with info callback
+        // Wait for any previous search to finish
+        if let Some(thread) = self.search_thread.take() {
+            self.stop_flag.store(true, Ordering::Relaxed);
+            let _ = thread.join();
+        }
+
+        // Reset stop flag for new search
+        self.stop_flag.store(false, Ordering::Relaxed);
+
+        // Clone necessary data for the search thread
         let position = self.position.clone();
-        let _start_time = std::time::Instant::now();
+        let stop_flag = Arc::clone(&self.stop_flag);
 
-        let callback = Box::new(move |info: &SearchProgress| {
-            print!(
-                "info depth {} score cp {} nodes {} time {} nps {} pv",
-                info.depth,
-                info.score,
-                info.nodes,
-                info.time_ms,
-                if info.time_ms > 0 {
-                    (info.nodes * 1000) / info.time_ms
-                } else {
-                    0
+        // Spawn search thread
+        let search_thread = thread::spawn(move || {
+            let callback = Box::new(move |info: &SearchProgress| {
+                print!(
+                    "info depth {} score cp {} nodes {} time {} nps {} pv",
+                    info.depth,
+                    info.score,
+                    info.nodes,
+                    info.time_ms,
+                    if info.time_ms > 0 {
+                        (info.nodes * 1000) / info.time_ms
+                    } else {
+                        0
+                    }
+                );
+
+                // Print principal variation
+                for mv in &info.pv {
+                    print!(" {}", format_move_static(*mv));
                 }
-            );
+                println!();
+                io::stdout().flush().unwrap();
+            });
 
-            // Print principal variation
-            for mv in &info.pv {
-                print!(" {}", format_move_static(*mv));
+            let result = search_with_callback_and_stop(&position, limits, callback, stop_flag);
+
+            // Output result
+            if let Some(best_move) = result.best_move {
+                println!("bestmove {}", format_move_static(best_move));
+            } else {
+                println!("bestmove 0000"); // Null move (no legal moves)
             }
-            println!();
             io::stdout().flush().unwrap();
         });
 
-        let result = search_with_callback(&position, limits, callback);
-
-        // Output result
-        if let Some(best_move) = result.best_move {
-            println!("bestmove {}", self.format_move(best_move));
-        } else {
-            println!("bestmove 0000"); // Null move (no legal moves)
-        }
-        io::stdout().flush().unwrap();
+        self.search_thread = Some(search_thread);
     }
 
     fn parse_move(&self, move_str: &str) -> Option<Move> {
@@ -324,6 +346,16 @@ impl UciEngine {
             Some(mv)
         } else {
             None
+        }
+    }
+
+    fn handle_stop(&mut self) {
+        // Set the stop flag
+        self.stop_flag.store(true, Ordering::Relaxed);
+
+        // Wait for search thread to finish
+        if let Some(thread) = self.search_thread.take() {
+            let _ = thread.join();
         }
     }
 
