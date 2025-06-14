@@ -9,6 +9,7 @@ chess-core = { path = "../core" }
 pollster = "0.3"
 raw-window-handle = "0.5"
 wgpu = { version = "0.19", features = ["wgsl"] }
+glyphon = "0.5"
 winit = "0.29"
 
 [[bin]]
