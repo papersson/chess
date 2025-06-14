@@ -1,13 +1,13 @@
+use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use wgpu::{Device, Queue, Surface, SurfaceConfiguration};
 use winit::window::Window;
-use bytemuck::{Pod, Zeroable};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
-struct Vertex {
-    position: [f32; 2],
-    color: [f32; 4],
+pub struct Vertex {
+    pub position: [f32; 2],
+    pub color: [f32; 4],
 }
 
 impl Vertex {
@@ -48,6 +48,7 @@ pub struct Renderer {
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     num_vertices: u32,
+    max_vertices: usize,
 }
 
 impl Renderer {
@@ -142,7 +143,7 @@ impl Renderer {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
@@ -156,14 +157,17 @@ impl Renderer {
             multiview: None,
         });
 
-        // Create vertex buffer
-        use wgpu::util::DeviceExt;
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        // Create vertex buffer with capacity for many vertices
+        let max_vertices = 10000; // Enough for board + pieces
+        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
+            size: (std::mem::size_of::<Vertex>() * max_vertices) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
-        let num_vertices = VERTICES.len() as u32;
+
+        // Start with 0 vertices
+        let num_vertices = 0;
 
         Self {
             surface,
@@ -173,6 +177,7 @@ impl Renderer {
             render_pipeline,
             vertex_buffer,
             num_vertices,
+            max_vertices,
         }
     }
 
@@ -181,6 +186,14 @@ impl Renderer {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
+        }
+    }
+
+    pub fn update_vertices(&mut self, vertices: &[Vertex]) {
+        if vertices.len() <= self.max_vertices {
+            self.queue
+                .write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(vertices));
+            self.num_vertices = vertices.len() as u32;
         }
     }
 
@@ -204,9 +217,9 @@ impl Renderer {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -217,9 +230,11 @@ impl Renderer {
                 timestamp_writes: None,
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.draw(0..self.num_vertices, 0..1);
+            if self.num_vertices > 0 {
+                render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                render_pass.draw(0..self.num_vertices, 0..1);
+            }
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
