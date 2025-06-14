@@ -8,7 +8,7 @@ bytemuck = { version = "1.14", features = ["derive"] }
 chess-core = { path = "../core" }
 pollster = "0.3"
 raw-window-handle = "0.5"
-wgpu = "0.19"
+wgpu = { version = "0.19", features = ["wgsl"] }
 winit = "0.29"
 
 [[bin]]
