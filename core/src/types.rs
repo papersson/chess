@@ -7,6 +7,15 @@ pub enum Color {
     Black,
 }
 
+impl fmt::Display for Color {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Color::White => write!(f, "White"),
+            Color::Black => write!(f, "Black"),
+        }
+    }
+}
+
 impl Color {
     /// Returns the opposite color.
     pub const fn opponent(self) -> Self {

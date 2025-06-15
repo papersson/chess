@@ -13,6 +13,8 @@ pub struct TextRenderer {
     renderer: GlyphonRenderer,
     // Store buffers for each piece position to avoid lifetime issues
     piece_buffers: HashMap<(i32, i32), Buffer>,
+    // Store buffer for status text
+    status_buffer: Option<Buffer>,
 }
 
 impl TextRenderer {
@@ -35,6 +37,7 @@ impl TextRenderer {
             atlas,
             renderer,
             piece_buffers: HashMap::new(),
+            status_buffer: None,
         }
     }
 
@@ -63,6 +66,7 @@ impl TextRenderer {
         square_size: f32,
         screen_width: f32,
         screen_height: f32,
+        status_text: Option<&str>,
     ) {
         // Clear previous buffers
         self.piece_buffers.clear();
@@ -94,8 +98,44 @@ impl TextRenderer {
             self.piece_buffers.insert(key, buffer);
         }
 
+        // Prepare status text if provided
+        if let Some(text) = status_text {
+            let mut buffer = Buffer::new(
+                &mut self.font_system,
+                Metrics::new(24.0, 28.0),
+            );
+            buffer.set_size(&mut self.font_system, screen_width, 40.0);
+            buffer.set_text(
+                &mut self.font_system,
+                text,
+                Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
+            self.status_buffer = Some(buffer);
+        }
+        
         // Build text areas from stored buffers
         let mut text_areas = Vec::new();
+        
+        // Add status text area in the side panel
+        if let Some(buffer) = &self.status_buffer {
+            let panel_left = screen_width * 0.8 + 20.0; // Right side panel
+            text_areas.push(TextArea {
+                buffer,
+                left: panel_left,
+                top: 40.0,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: panel_left as i32,
+                    top: 0,
+                    right: screen_width as i32,
+                    bottom: 100,
+                },
+                default_color: glyphon::Color::rgb(255, 255, 255),
+            });
+        }
+        
         for ((screen_x, screen_y), buffer) in &self.piece_buffers {
             let screen_x = *screen_x as f32;
             let screen_y = *screen_y as f32;
@@ -103,7 +143,7 @@ impl TextRenderer {
             // Calculate bounds to center the piece
             let left = screen_x - square_size / 2.0;
             let top = screen_y - square_size / 2.0;
-            
+
             // Determine piece color from the stored piece data
             let piece_color = if let Some(&(_, color, _, _)) = pieces.iter().find(|(_, _, x, y)| {
                 let sx = (*x + 1.0) * screen_width / 2.0;
@@ -111,42 +151,86 @@ impl TextRenderer {
                 (sx as i32, sy as i32) == (screen_x as i32, screen_y as i32)
             }) {
                 match color {
-                    Color::White => glyphon::Color::rgb(255, 255, 255),  // White fill for white pieces
-                    Color::Black => glyphon::Color::rgb(0, 0, 0),        // Black fill for black pieces
+                    Color::White => glyphon::Color::rgb(255, 255, 255), // White fill for white pieces
+                    Color::Black => glyphon::Color::rgb(0, 0, 0), // Black fill for black pieces
                 }
             } else {
-                glyphon::Color::rgb(255, 255, 255)  // Default to white
+                glyphon::Color::rgb(255, 255, 255) // Default to white
             };
 
-            // First add black outline (slightly larger)
-            text_areas.push(TextArea {
-                buffer,
-                left: left - 1.5,
-                top: top - 1.5,
-                scale: 1.02,
-                bounds: TextBounds {
-                    left: (left - 1.5) as i32,
-                    top: (top - 1.5) as i32,
-                    right: (left + square_size + 1.5) as i32,
-                    bottom: (top + square_size + 1.5) as i32,
-                },
-                default_color: glyphon::Color::rgb(0, 0, 0),
-            });
-            
-            // Then add the actual piece on top with appropriate color
-            text_areas.push(TextArea {
-                buffer,
-                left,
-                top,
-                scale: 1.0,
-                bounds: TextBounds {
-                    left: left as i32,
-                    top: top as i32,
-                    right: (left + square_size) as i32,
-                    bottom: (top + square_size) as i32,
-                },
-                default_color: piece_color,
-            });
+            // For white pieces, we need to render multiple layers
+            let is_white_piece = piece_color == glyphon::Color::rgb(255, 255, 255);
+            if is_white_piece {
+                // First add thick black outline
+                for offset in &[
+                    (2.0, 0.0),
+                    (-2.0, 0.0),
+                    (0.0, 2.0),
+                    (0.0, -2.0),
+                    (1.5, 1.5),
+                    (-1.5, -1.5),
+                    (1.5, -1.5),
+                    (-1.5, 1.5),
+                ] {
+                    text_areas.push(TextArea {
+                        buffer,
+                        left: left + offset.0,
+                        top: top + offset.1,
+                        scale: 1.0,
+                        bounds: TextBounds {
+                            left: (left + offset.0) as i32,
+                            top: (top + offset.1) as i32,
+                            right: (left + square_size + offset.0) as i32,
+                            bottom: (top + square_size + offset.1) as i32,
+                        },
+                        default_color: glyphon::Color::rgb(0, 0, 0),
+                    });
+                }
+
+                // Then add white fill
+                text_areas.push(TextArea {
+                    buffer,
+                    left,
+                    top,
+                    scale: 1.0,
+                    bounds: TextBounds {
+                        left: left as i32,
+                        top: top as i32,
+                        right: (left + square_size) as i32,
+                        bottom: (top + square_size) as i32,
+                    },
+                    default_color: glyphon::Color::rgb(255, 255, 255),
+                });
+            } else {
+                // For black pieces, just add outline and piece
+                text_areas.push(TextArea {
+                    buffer,
+                    left: left - 1.5,
+                    top: top - 1.5,
+                    scale: 1.02,
+                    bounds: TextBounds {
+                        left: (left - 1.5) as i32,
+                        top: (top - 1.5) as i32,
+                        right: (left + square_size + 1.5) as i32,
+                        bottom: (top + square_size + 1.5) as i32,
+                    },
+                    default_color: glyphon::Color::rgb(0, 0, 0),
+                });
+
+                text_areas.push(TextArea {
+                    buffer,
+                    left,
+                    top,
+                    scale: 1.0,
+                    bounds: TextBounds {
+                        left: left as i32,
+                        top: top as i32,
+                        right: (left + square_size) as i32,
+                        bottom: (top + square_size) as i32,
+                    },
+                    default_color: piece_color,
+                });
+            }
         }
 
         self.renderer
@@ -167,5 +251,115 @@ impl TextRenderer {
 
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
         self.renderer.render(&self.atlas, render_pass).unwrap();
+    }
+    
+    pub fn prepare_text(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        text: &str,
+        screen_width: f32,
+        screen_height: f32,
+    ) {
+        // Create a buffer for the status text
+        let mut buffer = Buffer::new(
+            &mut self.font_system,
+            Metrics::new(24.0, 28.0), // Smaller font size for status
+        );
+        buffer.set_size(&mut self.font_system, screen_width, 40.0);
+        buffer.set_text(
+            &mut self.font_system,
+            text,
+            Attrs::new().family(Family::SansSerif),
+            Shaping::Advanced,
+        );
+        buffer.shape_until_scroll(&mut self.font_system);
+        
+        self.status_buffer = Some(buffer);
+        
+        // Build text areas including status text
+        let mut text_areas = Vec::new();
+        
+        // Add status text area in the side panel
+        if let Some(buffer) = &self.status_buffer {
+            let panel_left = screen_width * 0.8 + 20.0; // Right side panel
+            text_areas.push(TextArea {
+                buffer,
+                left: panel_left,
+                top: 40.0,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: panel_left as i32,
+                    top: 0,
+                    right: screen_width as i32,
+                    bottom: 100,
+                },
+                default_color: glyphon::Color::rgb(255, 255, 255),
+            });
+        }
+        
+        // Add piece text areas
+        for ((screen_x, screen_y), buffer) in &self.piece_buffers {
+            let screen_x = *screen_x as f32;
+            let screen_y = *screen_y as f32;
+            let square_size = buffer.metrics().line_height;
+            
+            // Calculate bounds for centering
+            let left = screen_x - square_size / 2.0;
+            let top = screen_y - square_size / 2.0;
+            
+            // Add black outline areas
+            for dx in [-1, 0, 1].iter() {
+                for dy in [-1, 0, 1].iter() {
+                    if *dx == 0 && *dy == 0 {
+                        continue;
+                    }
+                    text_areas.push(TextArea {
+                        buffer,
+                        left: left + *dx as f32,
+                        top: top + *dy as f32,
+                        scale: 1.0,
+                        bounds: TextBounds {
+                            left: 0,
+                            top: 0,
+                            right: screen_width as i32,
+                            bottom: screen_height as i32,
+                        },
+                        default_color: glyphon::Color::rgb(0, 0, 0),
+                    });
+                }
+            }
+            
+            // Add the main piece
+            text_areas.push(TextArea {
+                buffer,
+                left,
+                top,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: 0,
+                    top: 0,
+                    right: screen_width as i32,
+                    bottom: screen_height as i32,
+                },
+                default_color: glyphon::Color::rgb(255, 255, 255),
+            });
+        }
+        
+        // Prepare for rendering
+        self.renderer
+            .prepare(
+                device,
+                queue,
+                &mut self.font_system,
+                &mut self.atlas,
+                Resolution {
+                    width: screen_width as u32,
+                    height: screen_height as u32,
+                },
+                text_areas,
+                &mut self.swash_cache,
+            )
+            .unwrap();
     }
 }
