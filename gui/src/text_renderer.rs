@@ -6,6 +6,12 @@ use glyphon::{
 use std::collections::HashMap;
 use wgpu::{Device, MultisampleState, Queue, TextureFormat};
 
+pub struct UiText {
+    pub game_mode: String,
+    pub status: String,
+    pub move_history: Vec<String>,
+}
+
 pub struct TextRenderer {
     font_system: FontSystem,
     swash_cache: SwashCache,
@@ -13,8 +19,10 @@ pub struct TextRenderer {
     renderer: GlyphonRenderer,
     // Store buffers for each piece position to avoid lifetime issues
     piece_buffers: HashMap<(i32, i32), Buffer>,
-    // Store buffer for status text
+    // Store buffers for UI text sections
+    game_mode_buffer: Option<Buffer>,
     status_buffer: Option<Buffer>,
+    move_history_buffer: Option<Buffer>,
 }
 
 impl TextRenderer {
@@ -37,7 +45,9 @@ impl TextRenderer {
             atlas,
             renderer,
             piece_buffers: HashMap::new(),
+            game_mode_buffer: None,
             status_buffer: None,
+            move_history_buffer: None,
         }
     }
 
@@ -66,7 +76,7 @@ impl TextRenderer {
         square_size: f32,
         screen_width: f32,
         screen_height: f32,
-        status_text: Option<&str>,
+        ui_text: &UiText,
     ) {
         // Clear previous buffers
         self.piece_buffers.clear();
@@ -98,44 +108,110 @@ impl TextRenderer {
             self.piece_buffers.insert(key, buffer);
         }
 
-        // Prepare status text if provided
-        if let Some(text) = status_text {
-            let mut buffer = Buffer::new(
-                &mut self.font_system,
-                Metrics::new(24.0, 28.0),
-            );
-            buffer.set_size(&mut self.font_system, screen_width, 40.0);
+        // Prepare UI text sections
+        // Game mode text
+        {
+            let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(20.0, 24.0));
+            buffer.set_size(&mut self.font_system, screen_width * 0.2, 40.0);
             buffer.set_text(
                 &mut self.font_system,
-                text,
+                &ui_text.game_mode,
+                Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
+            self.game_mode_buffer = Some(buffer);
+        }
+
+        // Status text
+        {
+            let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(24.0, 28.0));
+            buffer.set_size(&mut self.font_system, screen_width * 0.2, 40.0);
+            buffer.set_text(
+                &mut self.font_system,
+                &ui_text.status,
                 Attrs::new().family(Family::SansSerif),
                 Shaping::Advanced,
             );
             buffer.shape_until_scroll(&mut self.font_system);
             self.status_buffer = Some(buffer);
         }
-        
+
+        // Move history text
+        if !ui_text.move_history.is_empty() {
+            let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(16.0, 20.0));
+            buffer.set_size(
+                &mut self.font_system,
+                screen_width * 0.2,
+                screen_height * 0.5,
+            );
+            let history_text = ui_text.move_history.join("\n");
+            buffer.set_text(
+                &mut self.font_system,
+                &history_text,
+                Attrs::new().family(Family::Monospace),
+                Shaping::Advanced,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
+            self.move_history_buffer = Some(buffer);
+        }
+
         // Build text areas from stored buffers
         let mut text_areas = Vec::new();
-        
-        // Add status text area in the side panel
-        if let Some(buffer) = &self.status_buffer {
-            let panel_left = screen_width * 0.8 + 20.0; // Right side panel
+
+        let panel_left = screen_width * 0.8 + 20.0; // Right side panel
+
+        // Add game mode text area
+        if let Some(buffer) = &self.game_mode_buffer {
             text_areas.push(TextArea {
                 buffer,
                 left: panel_left,
-                top: 40.0,
+                top: 20.0,
                 scale: 1.0,
                 bounds: TextBounds {
                     left: panel_left as i32,
                     top: 0,
                     right: screen_width as i32,
-                    bottom: 100,
+                    bottom: 80,
+                },
+                default_color: glyphon::Color::rgb(200, 200, 200),
+            });
+        }
+
+        // Add status text area
+        if let Some(buffer) = &self.status_buffer {
+            text_areas.push(TextArea {
+                buffer,
+                left: panel_left,
+                top: screen_height * 0.25 + 20.0,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: panel_left as i32,
+                    top: (screen_height * 0.25) as i32,
+                    right: screen_width as i32,
+                    bottom: (screen_height * 0.4) as i32,
                 },
                 default_color: glyphon::Color::rgb(255, 255, 255),
             });
         }
-        
+
+        // Add move history text area
+        if let Some(buffer) = &self.move_history_buffer {
+            text_areas.push(TextArea {
+                buffer,
+                left: panel_left,
+                top: screen_height * 0.4 + 20.0,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: panel_left as i32,
+                    top: (screen_height * 0.4) as i32,
+                    right: screen_width as i32,
+                    bottom: screen_height as i32,
+                },
+                default_color: glyphon::Color::rgb(180, 180, 180),
+            });
+        }
+
         for ((screen_x, screen_y), buffer) in &self.piece_buffers {
             let screen_x = *screen_x as f32;
             let screen_y = *screen_y as f32;
@@ -252,7 +328,7 @@ impl TextRenderer {
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
         self.renderer.render(&self.atlas, render_pass).unwrap();
     }
-    
+
     pub fn prepare_text(
         &mut self,
         device: &Device,
@@ -274,12 +350,12 @@ impl TextRenderer {
             Shaping::Advanced,
         );
         buffer.shape_until_scroll(&mut self.font_system);
-        
+
         self.status_buffer = Some(buffer);
-        
+
         // Build text areas including status text
         let mut text_areas = Vec::new();
-        
+
         // Add status text area in the side panel
         if let Some(buffer) = &self.status_buffer {
             let panel_left = screen_width * 0.8 + 20.0; // Right side panel
@@ -297,17 +373,17 @@ impl TextRenderer {
                 default_color: glyphon::Color::rgb(255, 255, 255),
             });
         }
-        
+
         // Add piece text areas
         for ((screen_x, screen_y), buffer) in &self.piece_buffers {
             let screen_x = *screen_x as f32;
             let screen_y = *screen_y as f32;
             let square_size = buffer.metrics().line_height;
-            
+
             // Calculate bounds for centering
             let left = screen_x - square_size / 2.0;
             let top = screen_y - square_size / 2.0;
-            
+
             // Add black outline areas
             for dx in [-1, 0, 1].iter() {
                 for dy in [-1, 0, 1].iter() {
@@ -329,7 +405,7 @@ impl TextRenderer {
                     });
                 }
             }
-            
+
             // Add the main piece
             text_areas.push(TextArea {
                 buffer,
@@ -345,7 +421,7 @@ impl TextRenderer {
                 default_color: glyphon::Color::rgb(255, 255, 255),
             });
         }
-        
+
         // Prepare for rendering
         self.renderer
             .prepare(

@@ -6,12 +6,14 @@ mod sprite_batch;
 mod text_renderer;
 
 use board::BoardRenderer;
-use chess_core::{generate_legal_moves, is_checkmate, is_stalemate, Color, File, GameState, PieceType, Rank, Square};
-use pieces::PieceRenderer;
+use chess_core::{
+    generate_legal_moves, is_checkmate, is_stalemate, Color, File, GameState, PieceType, Rank,
+    Square,
+};
 use renderer::{Renderer, Vertex};
-use wgpu::util::DeviceExt;
 use std::sync::Arc;
-use text_renderer::TextRenderer;
+use text_renderer::{TextRenderer, UiText};
+use wgpu::util::DeviceExt;
 use winit::{
     dpi::PhysicalPosition,
     event::{ElementState, Event, MouseButton, WindowEvent},
@@ -23,13 +25,20 @@ struct ChessGUI {
     window: Arc<Window>,
     renderer: Renderer,
     board: BoardRenderer,
-    pieces: PieceRenderer,
     text_renderer: Option<TextRenderer>,
     game_state: GameState,
     mouse_position: PhysicalPosition<f64>,
     selected_square: Option<Square>,
     valid_moves: Vec<chess_core::Move>,
     promotion_pending: Option<PromotionState>,
+    game_mode: GameMode,
+    move_history: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum GameMode {
+    HumanVsHuman,
+    HumanVsAI(Color), // AI plays this color
 }
 
 struct PromotionState {
@@ -50,7 +59,6 @@ impl ChessGUI {
 
         let renderer = Renderer::new(window.clone()).await;
         let board = BoardRenderer::new(800.0);
-        let pieces = PieceRenderer::new();
         let game_state = GameState::new();
         let text_renderer =
             TextRenderer::new(&renderer.device, &renderer.queue, renderer.config.format);
@@ -59,13 +67,14 @@ impl ChessGUI {
             window,
             renderer,
             board,
-            pieces,
             text_renderer: Some(text_renderer),
             game_state,
             mouse_position: PhysicalPosition::new(0.0, 0.0),
             selected_square: None,
             valid_moves: Vec::new(),
             promotion_pending: None,
+            game_mode: GameMode::HumanVsHuman,
+            move_history: Vec::new(),
         }
     }
 }
@@ -136,37 +145,99 @@ fn update_display(app: &mut ChessGUI) {
 
     // Update board vertices with highlights
     let mut all_vertices = app.board.generate_vertices().to_vec();
-    
-    // Add side panel background
-    let panel_color = [0.15, 0.15, 0.15, 1.0];
+
+    // Add side panel background with gradient effect
+    let panel_bg_color = [0.12, 0.12, 0.12, 1.0];
+    let panel_bg_color2 = [0.08, 0.08, 0.08, 1.0];
     all_vertices.extend_from_slice(&[
-        // Panel background (right side)
+        // Panel background (right side) with gradient
         Vertex {
             position: [0.6, -1.0],
-            color: panel_color,
+            color: panel_bg_color,
         },
         Vertex {
             position: [1.0, -1.0],
-            color: panel_color,
+            color: panel_bg_color2,
         },
         Vertex {
             position: [0.6, 1.0],
-            color: panel_color,
+            color: panel_bg_color,
         },
         Vertex {
             position: [1.0, -1.0],
-            color: panel_color,
+            color: panel_bg_color2,
         },
         Vertex {
             position: [1.0, 1.0],
-            color: panel_color,
+            color: panel_bg_color2,
         },
         Vertex {
             position: [0.6, 1.0],
-            color: panel_color,
+            color: panel_bg_color,
         },
     ]);
-    
+
+    // Add section dividers
+    let divider_color = [0.3, 0.3, 0.3, 1.0];
+    let divider_y1 = 0.5; // Between game mode and status
+    let divider_y2 = 0.2; // Between status and move history
+
+    // First divider
+    all_vertices.extend_from_slice(&[
+        Vertex {
+            position: [0.62, divider_y1],
+            color: divider_color,
+        },
+        Vertex {
+            position: [0.98, divider_y1],
+            color: divider_color,
+        },
+        Vertex {
+            position: [0.62, divider_y1 - 0.005],
+            color: divider_color,
+        },
+        Vertex {
+            position: [0.98, divider_y1],
+            color: divider_color,
+        },
+        Vertex {
+            position: [0.98, divider_y1 - 0.005],
+            color: divider_color,
+        },
+        Vertex {
+            position: [0.62, divider_y1 - 0.005],
+            color: divider_color,
+        },
+    ]);
+
+    // Second divider
+    all_vertices.extend_from_slice(&[
+        Vertex {
+            position: [0.62, divider_y2],
+            color: divider_color,
+        },
+        Vertex {
+            position: [0.98, divider_y2],
+            color: divider_color,
+        },
+        Vertex {
+            position: [0.62, divider_y2 - 0.005],
+            color: divider_color,
+        },
+        Vertex {
+            position: [0.98, divider_y2],
+            color: divider_color,
+        },
+        Vertex {
+            position: [0.98, divider_y2 - 0.005],
+            color: divider_color,
+        },
+        Vertex {
+            position: [0.62, divider_y2 - 0.005],
+            color: divider_color,
+        },
+    ]);
+
     app.renderer.update_vertices(&all_vertices);
 }
 
@@ -176,18 +247,26 @@ fn handle_mouse_click(app: &mut ChessGUI) {
         let board_size = 800.0;
         let x = app.mouse_position.x as f32;
         let y = app.mouse_position.y as f32;
-        
+
         // Check if clicking on promotion selection area
         // We'll show 4 pieces horizontally centered on the promotion square
         let square_size = board_size / 8.0;
         let promo_col = promo_state.to.file().index() as f32;
-        let promo_row = if promo_state.color == Color::White { 0.0 } else { 7.0 };
-        
+        let promo_row = if promo_state.color == Color::White {
+            0.0
+        } else {
+            7.0
+        };
+
         let promo_x = promo_col * square_size;
         let promo_y = promo_row * square_size;
-        
+
         // Check if within the promotion selection area (4 squares wide)
-        if y >= promo_y && y < promo_y + square_size && x >= promo_x - 1.5 * square_size && x < promo_x + 2.5 * square_size {
+        if y >= promo_y
+            && y < promo_y + square_size
+            && x >= promo_x - 1.5 * square_size
+            && x < promo_x + 2.5 * square_size
+        {
             let selection_index = ((x - (promo_x - 1.5 * square_size)) / square_size) as usize;
             let promotion_piece = match selection_index {
                 0 => Some(PieceType::Queen),
@@ -196,11 +275,14 @@ fn handle_mouse_click(app: &mut ChessGUI) {
                 3 => Some(PieceType::Knight),
                 _ => None,
             };
-            
+
             if let Some(piece_type) = promotion_piece {
                 let promo_state = app.promotion_pending.take().unwrap();
-                let promotion_move = chess_core::Move::new_promotion(promo_state.from, promo_state.to, piece_type);
+                let promotion_move =
+                    chess_core::Move::new_promotion(promo_state.from, promo_state.to, piece_type);
+                let move_notation = format_move(&app.game_state, promotion_move);
                 app.game_state = app.game_state.apply_move(promotion_move);
+                app.move_history.push(move_notation);
                 app.selected_square = None;
                 app.valid_moves.clear();
                 update_display(app);
@@ -208,8 +290,7 @@ fn handle_mouse_click(app: &mut ChessGUI) {
         }
         return;
     }
-    
-    let window_size = app.window.inner_size();
+
     let board_size = 800.0;
 
     // Convert mouse position to board coordinates
@@ -257,11 +338,15 @@ fn handle_mouse_click(app: &mut ChessGUI) {
                 // Check if this is a valid move
                 if let Some(chess_move) = app.valid_moves.iter().find(|m| m.to == clicked_square) {
                     let chess_move = *chess_move;
-                    
+
                     // Check if this is a pawn promotion move
                     if let Some(piece) = app.game_state.board.piece_at(from_square) {
                         if piece.piece_type == PieceType::Pawn {
-                            let promotion_rank = if piece.color == Color::White { Rank::EIGHTH } else { Rank::FIRST };
+                            let promotion_rank = if piece.color == Color::White {
+                                Rank::EIGHTH
+                            } else {
+                                Rank::FIRST
+                            };
                             if clicked_square.rank() == promotion_rank {
                                 // Show promotion selection
                                 app.promotion_pending = Some(PromotionState {
@@ -274,9 +359,11 @@ fn handle_mouse_click(app: &mut ChessGUI) {
                             }
                         }
                     }
-                    
+
                     // Apply the move
+                    let move_notation = format_move(&app.game_state, chess_move);
                     app.game_state = app.game_state.apply_move(chess_move);
+                    app.move_history.push(move_notation);
                     app.selected_square = None;
                     app.valid_moves.clear();
                     update_display(app);
@@ -345,7 +432,8 @@ fn render_frame(app: &mut ChessGUI) {
             // Second render pass: render pieces using text
             if let Some(text_renderer) = &mut app.text_renderer {
                 let window_size = app.window.inner_size();
-                let board_pixel_size = (window_size.width as f32 * 0.8).min(window_size.height as f32);
+                let board_pixel_size =
+                    (window_size.width as f32 * 0.8).min(window_size.height as f32);
                 let square_size = board_pixel_size / 8.0;
 
                 // Collect all pieces to render
@@ -371,8 +459,17 @@ fn render_frame(app: &mut ChessGUI) {
                     }
                 }
 
-                // Prepare text areas with game status
-                let status_text = get_game_status_text(&app.game_state);
+                // Prepare UI text
+                let ui_text = UiText {
+                    game_mode: match app.game_mode {
+                        GameMode::HumanVsHuman => "Human vs Human".to_string(),
+                        GameMode::HumanVsAI(Color::White) => "AI (White) vs Human".to_string(),
+                        GameMode::HumanVsAI(Color::Black) => "Human vs AI (Black)".to_string(),
+                    },
+                    status: get_game_status_text(&app.game_state),
+                    move_history: app.move_history.clone(),
+                };
+
                 text_renderer.prepare_pieces(
                     &app.renderer.device,
                     &app.renderer.queue,
@@ -380,7 +477,7 @@ fn render_frame(app: &mut ChessGUI) {
                     square_size,
                     window_size.width as f32,
                     window_size.height as f32,
-                    Some(&status_text),
+                    &ui_text,
                 );
 
                 // Render text in a new pass
@@ -401,7 +498,7 @@ fn render_frame(app: &mut ChessGUI) {
 
                 text_renderer.render(&mut render_pass);
             }
-            
+
             // Render promotion selection if pending
             if app.promotion_pending.is_some() {
                 render_promotion_selection(app, &mut encoder, &view);
@@ -424,10 +521,10 @@ fn render_promotion_selection(
     let window_size = app.window.inner_size();
     let board_pixel_size = (window_size.width as f32 * 0.8).min(window_size.height as f32);
     let square_size = board_pixel_size / 8.0;
-    
+
     // Generate vertices for promotion overlay background
     let mut vertices = Vec::new();
-    
+
     // Dark overlay over board area only
     vertices.extend_from_slice(&[
         Vertex {
@@ -455,23 +552,27 @@ fn render_promotion_selection(
             color: [0.0, 0.0, 0.0, 0.7],
         },
     ]);
-    
+
     // Light background for promotion choices
     let promo_col = promo_state.to.file().index() as f32;
-    let promo_row = if promo_state.color == Color::White { 0.0 } else { 7.0 };
-    
+    let promo_row = if promo_state.color == Color::White {
+        0.0
+    } else {
+        7.0
+    };
+
     for i in 0..4 {
         let x = (promo_col - 1.5 + i as f32) * square_size;
         let y = promo_row * square_size;
-        
+
         let board_width = 1.6; // 80% of NDC width
         let ndc_x = (x / board_pixel_size) * board_width - 1.0;
         let ndc_y = 1.0 - (y / board_pixel_size) * 2.0;
         let ndc_x2 = ((x + square_size) / board_pixel_size) * board_width - 1.0;
         let ndc_y2 = 1.0 - ((y + square_size) / board_pixel_size) * 2.0;
-        
+
         let color = [0.9, 0.9, 0.9, 1.0];
-        
+
         vertices.extend_from_slice(&[
             Vertex {
                 position: [ndc_x, ndc_y],
@@ -499,16 +600,17 @@ fn render_promotion_selection(
             },
         ]);
     }
-    
+
     // Create a temporary vertex buffer for the overlay
-    let overlay_buffer = app.renderer.device.create_buffer_init(
-        &wgpu::util::BufferInitDescriptor {
-            label: Some("Promotion Overlay Buffer"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        },
-    );
-    
+    let overlay_buffer =
+        app.renderer
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Promotion Overlay Buffer"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+
     // Render the overlay
     {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -530,7 +632,7 @@ fn render_promotion_selection(
         render_pass.set_vertex_buffer(0, overlay_buffer.slice(..));
         render_pass.draw(0..vertices.len() as u32, 0..1);
     }
-    
+
     // Render promotion piece choices using text renderer
     if let Some(text_renderer) = &mut app.text_renderer {
         let window_size = app.window.inner_size();
@@ -540,19 +642,19 @@ fn render_promotion_selection(
             (PieceType::Bishop, promo_state.color),
             (PieceType::Knight, promo_state.color),
         ];
-        
+
         let mut piece_positions = Vec::new();
         for (i, (piece_type, color)) in pieces.iter().enumerate() {
             let x = (promo_col - 1.5 + i as f32) * square_size + square_size / 2.0;
             let y = promo_row * square_size + square_size / 2.0;
-            
+
             let board_width = 1.6; // 80% of NDC width
             let ndc_x = (x / board_pixel_size) * board_width - 1.0;
             let ndc_y = 1.0 - (y / board_pixel_size) * 2.0;
-            
+
             piece_positions.push((*piece_type, *color, ndc_x, ndc_y));
         }
-        
+
         text_renderer.prepare_pieces(
             &app.renderer.device,
             &app.renderer.queue,
@@ -560,9 +662,13 @@ fn render_promotion_selection(
             square_size,
             window_size.width as f32,
             window_size.height as f32,
-            None, // No status text during promotion
+            &UiText {
+                game_mode: String::new(),
+                status: String::new(),
+                move_history: Vec::new(),
+            }, // No UI text during promotion
         );
-        
+
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Promotion Text Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -577,7 +683,7 @@ fn render_promotion_selection(
             occlusion_query_set: None,
             timestamp_writes: None,
         });
-        
+
         text_renderer.render(&mut render_pass);
     }
 }
@@ -596,4 +702,39 @@ fn get_game_status_text(game_state: &GameState) -> String {
     } else {
         format!("{} to move", game_state.turn)
     }
+}
+
+fn format_move(game_state: &GameState, chess_move: chess_core::Move) -> String {
+    let piece = game_state.board.piece_at(chess_move.from).unwrap();
+    let piece_symbol = match piece.piece_type {
+        PieceType::King => "K",
+        PieceType::Queen => "Q",
+        PieceType::Rook => "R",
+        PieceType::Bishop => "B",
+        PieceType::Knight => "N",
+        PieceType::Pawn => "",
+    };
+
+    let capture = if game_state.board.piece_at(chess_move.to).is_some() {
+        "x"
+    } else {
+        ""
+    };
+
+    let move_number = game_state.fullmove_number;
+    let color = if game_state.turn == Color::White {
+        "."
+    } else {
+        "..."
+    };
+
+    format!(
+        "{}{} {}{}{}{}",
+        move_number,
+        color,
+        piece_symbol,
+        capture,
+        chess_move.to.file().to_char(),
+        chess_move.to.rank().index() + 1
+    )
 }
