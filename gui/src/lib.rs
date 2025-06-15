@@ -35,15 +35,34 @@ struct ChessGUI {
     move_history: Vec<String>,
     ai_thinking: bool,
     mode_selection_active: bool,
+    difficulty_selection_active: bool,
     last_move: Option<Move>,
     ai_move_receiver: Option<Receiver<Move>>,
+    animating_move: Option<AnimationState>,
+    last_frame_time: std::time::Instant,
+}
+
+struct AnimationState {
+    from: Square,
+    to: Square,
+    piece: PieceType,
+    color: Color,
+    start_time: std::time::Instant,
+    duration: std::time::Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(dead_code)]
 enum GameMode {
     HumanVsHuman,
-    HumanVsAI(Color), // AI plays this color
+    HumanVsAI(Color, AIDifficulty), // AI plays this color with difficulty
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum AIDifficulty {
+    Easy,   // 100ms
+    Medium, // 500ms
+    Hard,   // 2000ms
 }
 
 struct PromotionState {
@@ -82,8 +101,11 @@ impl ChessGUI {
             move_history: Vec::new(),
             ai_thinking: false,
             mode_selection_active: true,
+            difficulty_selection_active: false,
             last_move: None,
             ai_move_receiver: None,
+            animating_move: None,
+            last_frame_time: std::time::Instant::now(),
         }
     }
 }
@@ -138,9 +160,34 @@ pub fn run() {
                     handle_mouse_click(&mut app);
                 }
                 Event::AboutToWait => {
+                    // Update animation progress
+                    let now = std::time::Instant::now();
+                    let needs_redraw = app.animating_move.is_some();
+
+                    if let Some(anim) = &app.animating_move {
+                        let elapsed = now.duration_since(anim.start_time);
+                        if elapsed >= anim.duration {
+                            // Animation complete
+                            app.animating_move = None;
+                            update_display(&mut app);
+                        }
+                    }
+
                     // Check for AI move completion
                     if let Some(receiver) = &app.ai_move_receiver {
                         if let Ok(ai_move) = receiver.try_recv() {
+                            // Start animation for AI move
+                            if let Some(piece) = app.game_state.board.piece_at(ai_move.from) {
+                                app.animating_move = Some(AnimationState {
+                                    from: ai_move.from,
+                                    to: ai_move.to,
+                                    piece: piece.piece_type,
+                                    color: piece.color,
+                                    start_time: now,
+                                    duration: std::time::Duration::from_millis(300),
+                                });
+                            }
+
                             // Apply AI move
                             let move_notation = format_move(&app.game_state, ai_move);
                             app.game_state = app.game_state.apply_move(ai_move);
@@ -152,8 +199,14 @@ pub fn run() {
                         }
                     }
 
-                    // Request a redraw before waiting
-                    app.window.request_redraw();
+                    app.last_frame_time = now;
+
+                    // Request a redraw if animating or before waiting
+                    if needs_redraw {
+                        app.window.request_redraw();
+                    } else {
+                        app.window.request_redraw();
+                    }
                 }
                 _ => {}
             }
@@ -272,6 +325,12 @@ fn handle_mouse_click(app: &mut ChessGUI) {
         return;
     }
 
+    // Handle difficulty selection
+    if app.difficulty_selection_active {
+        handle_difficulty_selection_click(app);
+        return;
+    }
+
     // Handle game over click
     if is_game_over(&app.game_state) {
         handle_game_over_click(app);
@@ -318,6 +377,17 @@ fn handle_mouse_click(app: &mut ChessGUI) {
 
             if let Some(piece_type) = promotion_piece {
                 let promo_state = app.promotion_pending.take().unwrap();
+
+                // Start animation for promotion move
+                app.animating_move = Some(AnimationState {
+                    from: promo_state.from,
+                    to: promo_state.to,
+                    piece: piece_type, // Use the promoted piece type
+                    color: promo_state.color,
+                    start_time: std::time::Instant::now(),
+                    duration: std::time::Duration::from_millis(300),
+                });
+
                 let promotion_move =
                     chess_core::Move::new_promotion(promo_state.from, promo_state.to, piece_type);
                 let move_notation = format_move(&app.game_state, promotion_move);
@@ -402,6 +472,18 @@ fn handle_mouse_click(app: &mut ChessGUI) {
                         }
                     }
 
+                    // Start animation for the move
+                    if let Some(piece) = app.game_state.board.piece_at(from_square) {
+                        app.animating_move = Some(AnimationState {
+                            from: from_square,
+                            to: clicked_square,
+                            piece: piece.piece_type,
+                            color: piece.color,
+                            start_time: std::time::Instant::now(),
+                            duration: std::time::Duration::from_millis(300),
+                        });
+                    }
+
                     // Apply the move
                     let move_notation = format_move(&app.game_state, chess_move);
                     app.game_state = app.game_state.apply_move(chess_move);
@@ -452,6 +534,13 @@ fn render_frame(app: &mut ChessGUI) {
                 app.renderer.submit_frame(encoder, output);
                 return;
             }
+
+            // Render difficulty selection screen if active
+            if app.difficulty_selection_active {
+                render_difficulty_selection(app, &mut encoder, &view);
+                app.renderer.submit_frame(encoder, output);
+                return;
+            }
             // First render pass: render the board
             {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -494,6 +583,17 @@ fn render_frame(app: &mut ChessGUI) {
                     for file in 0..8 {
                         if let (Some(f), Some(r)) = (File::new(file), Rank::new(rank)) {
                             let square = Square::new(f, r);
+
+                            // Skip piece if it's being animated
+                            if let Some(anim) = &app.animating_move {
+                                if square == anim.from {
+                                    continue; // Don't render at original position
+                                }
+                                if square == anim.to && anim.start_time.elapsed() < anim.duration {
+                                    continue; // Don't render at destination yet
+                                }
+                            }
+
                             if let Some(piece) = app.game_state.board.piece_at(square) {
                                 // Calculate piece position (center of square)
                                 // Note: rank 0 is at the bottom in chess, but top in screen coords
@@ -511,6 +611,41 @@ fn render_frame(app: &mut ChessGUI) {
                     }
                 }
 
+                // Add animated piece if any
+                if let Some(anim) = &app.animating_move {
+                    let elapsed = anim.start_time.elapsed();
+                    if elapsed < anim.duration {
+                        let progress = elapsed.as_secs_f32() / anim.duration.as_secs_f32();
+                        let progress = progress.min(1.0);
+
+                        // Smooth easing function (ease-in-out)
+                        let t = if progress < 0.5 {
+                            2.0 * progress * progress
+                        } else {
+                            1.0 - (-2.0 * progress + 2.0).powi(2) / 2.0
+                        };
+
+                        // Calculate interpolated position
+                        let from_file = anim.from.file().index() as f32;
+                        let from_rank = anim.from.rank().index() as f32;
+                        let to_file = anim.to.file().index() as f32;
+                        let to_rank = anim.to.rank().index() as f32;
+
+                        let file_pos = from_file + (to_file - from_file) * t;
+                        let rank_pos = from_rank + (to_rank - from_rank) * t;
+
+                        let x = file_pos * square_size + square_size / 2.0;
+                        let y = (7.0 - rank_pos) * square_size + square_size / 2.0;
+
+                        // Convert to NDC
+                        let board_width = 1.6;
+                        let ndc_x = (x / board_pixel_size) * board_width - 1.0;
+                        let ndc_y = 1.0 - (y / board_pixel_size) * 2.0;
+
+                        pieces.push((anim.piece, anim.color, ndc_x, ndc_y));
+                    }
+                }
+
                 // Prepare UI text
                 let status_text = if app.ai_thinking {
                     "AI is thinking...".to_string()
@@ -521,8 +656,12 @@ fn render_frame(app: &mut ChessGUI) {
                 let ui_text = UiText {
                     game_mode: match app.game_mode {
                         GameMode::HumanVsHuman => "Human vs Human".to_string(),
-                        GameMode::HumanVsAI(Color::White) => "AI (White) vs Human".to_string(),
-                        GameMode::HumanVsAI(Color::Black) => "Human vs AI (Black)".to_string(),
+                        GameMode::HumanVsAI(Color::White, diff) => {
+                            format!("AI ({:?}) vs Human", diff)
+                        }
+                        GameMode::HumanVsAI(Color::Black, diff) => {
+                            format!("Human vs AI ({:?})", diff)
+                        }
                     },
                     status: status_text,
                     move_history: app.move_history.clone(),
@@ -820,16 +959,16 @@ fn handle_mode_selection_click(app: &mut ChessGUI) {
             app.mode_selection_active = false;
             update_display(app);
         } else if ndc_x >= 0.1 && ndc_x <= 0.5 {
-            // Human vs AI
-            app.game_mode = GameMode::HumanVsAI(Color::Black);
+            // Human vs AI - show difficulty selection
             app.mode_selection_active = false;
+            app.difficulty_selection_active = true;
             update_display(app);
         }
     }
 }
 
 fn trigger_ai_move(app: &mut ChessGUI) {
-    if let GameMode::HumanVsAI(ai_color) = app.game_mode {
+    if let GameMode::HumanVsAI(ai_color, difficulty) = app.game_mode {
         if app.game_state.turn == ai_color && !is_game_over(&app.game_state) {
             app.ai_thinking = true;
             update_display(app);
@@ -841,7 +980,12 @@ fn trigger_ai_move(app: &mut ChessGUI) {
 
             // Spawn thread for AI computation
             thread::spawn(move || {
-                let mut ai_agent = MinimaxAgent::with_time_limit(1000);
+                let time_limit = match difficulty {
+                    AIDifficulty::Easy => 100,
+                    AIDifficulty::Medium => 500,
+                    AIDifficulty::Hard => 2000,
+                };
+                let mut ai_agent = MinimaxAgent::with_time_limit(time_limit);
                 if let Some(ai_move) = ai_agent.best_move(&game_state) {
                     let _ = tx.send(ai_move);
                 }
@@ -878,9 +1022,10 @@ fn handle_game_over_click(app: &mut ChessGUI) {
         app.ai_thinking = false;
         app.last_move = None;
         app.ai_move_receiver = None;
+        app.animating_move = None;
 
         // If playing against AI and AI plays white, trigger AI move
-        if let GameMode::HumanVsAI(Color::White) = app.game_mode {
+        if let GameMode::HumanVsAI(Color::White, _) = app.game_mode {
             trigger_ai_move(app);
         }
 
@@ -1040,6 +1185,228 @@ fn render_game_over_overlay(
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Game Over Text Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+
+        text_renderer.render(&mut render_pass);
+    }
+}
+
+fn handle_difficulty_selection_click(app: &mut ChessGUI) {
+    let x = app.mouse_position.x as f32;
+    let y = app.mouse_position.y as f32;
+    let window_size = app.window.inner_size();
+
+    // Convert to NDC
+    let ndc_x = (x / window_size.width as f32) * 2.0 - 1.0;
+    let ndc_y = 1.0 - (y / window_size.height as f32) * 2.0;
+
+    // Check if clicking on one of the difficulty buttons
+    // Buttons are centered at Y = 0.0
+    if ndc_y >= -0.15 && ndc_y <= 0.15 {
+        if ndc_x >= -0.6 && ndc_x <= -0.2 {
+            // Easy
+            app.game_mode = GameMode::HumanVsAI(Color::Black, AIDifficulty::Easy);
+            app.difficulty_selection_active = false;
+            update_display(app);
+        } else if ndc_x >= -0.2 && ndc_x <= 0.2 {
+            // Medium
+            app.game_mode = GameMode::HumanVsAI(Color::Black, AIDifficulty::Medium);
+            app.difficulty_selection_active = false;
+            update_display(app);
+        } else if ndc_x >= 0.2 && ndc_x <= 0.6 {
+            // Hard
+            app.game_mode = GameMode::HumanVsAI(Color::Black, AIDifficulty::Hard);
+            app.difficulty_selection_active = false;
+            update_display(app);
+        }
+    }
+}
+
+fn render_difficulty_selection(
+    app: &mut ChessGUI,
+    encoder: &mut wgpu::CommandEncoder,
+    view: &wgpu::TextureView,
+) {
+    // Generate vertices for difficulty selection screen
+    let mut vertices = Vec::new();
+
+    // Background
+    vertices.extend_from_slice(&[
+        Vertex {
+            position: [-1.0, -1.0],
+            color: [0.15, 0.15, 0.15, 1.0],
+        },
+        Vertex {
+            position: [1.0, -1.0],
+            color: [0.15, 0.15, 0.15, 1.0],
+        },
+        Vertex {
+            position: [-1.0, 1.0],
+            color: [0.15, 0.15, 0.15, 1.0],
+        },
+        Vertex {
+            position: [1.0, -1.0],
+            color: [0.15, 0.15, 0.15, 1.0],
+        },
+        Vertex {
+            position: [1.0, 1.0],
+            color: [0.15, 0.15, 0.15, 1.0],
+        },
+        Vertex {
+            position: [-1.0, 1.0],
+            color: [0.15, 0.15, 0.15, 1.0],
+        },
+    ]);
+
+    // Button 1: Easy
+    let easy_color = [0.3, 0.7, 0.3, 1.0];
+    vertices.extend_from_slice(&[
+        Vertex {
+            position: [-0.6, -0.15],
+            color: easy_color,
+        },
+        Vertex {
+            position: [-0.2, -0.15],
+            color: easy_color,
+        },
+        Vertex {
+            position: [-0.6, 0.15],
+            color: easy_color,
+        },
+        Vertex {
+            position: [-0.2, -0.15],
+            color: easy_color,
+        },
+        Vertex {
+            position: [-0.2, 0.15],
+            color: easy_color,
+        },
+        Vertex {
+            position: [-0.6, 0.15],
+            color: easy_color,
+        },
+    ]);
+
+    // Button 2: Medium
+    let medium_color = [0.7, 0.7, 0.3, 1.0];
+    vertices.extend_from_slice(&[
+        Vertex {
+            position: [-0.2, -0.15],
+            color: medium_color,
+        },
+        Vertex {
+            position: [0.2, -0.15],
+            color: medium_color,
+        },
+        Vertex {
+            position: [-0.2, 0.15],
+            color: medium_color,
+        },
+        Vertex {
+            position: [0.2, -0.15],
+            color: medium_color,
+        },
+        Vertex {
+            position: [0.2, 0.15],
+            color: medium_color,
+        },
+        Vertex {
+            position: [-0.2, 0.15],
+            color: medium_color,
+        },
+    ]);
+
+    // Button 3: Hard
+    let hard_color = [0.7, 0.3, 0.3, 1.0];
+    vertices.extend_from_slice(&[
+        Vertex {
+            position: [0.2, -0.15],
+            color: hard_color,
+        },
+        Vertex {
+            position: [0.6, -0.15],
+            color: hard_color,
+        },
+        Vertex {
+            position: [0.2, 0.15],
+            color: hard_color,
+        },
+        Vertex {
+            position: [0.6, -0.15],
+            color: hard_color,
+        },
+        Vertex {
+            position: [0.6, 0.15],
+            color: hard_color,
+        },
+        Vertex {
+            position: [0.2, 0.15],
+            color: hard_color,
+        },
+    ]);
+
+    // Create temporary buffer
+    let difficulty_buffer =
+        app.renderer
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Difficulty Selection Buffer"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+
+    // Render the difficulty selection
+    {
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Difficulty Selection Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 1.0,
+                    }),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+
+        render_pass.set_pipeline(&app.renderer.render_pipeline);
+        render_pass.set_vertex_buffer(0, difficulty_buffer.slice(..));
+        render_pass.draw(0..vertices.len() as u32, 0..1);
+    }
+
+    // Render text labels
+    if let Some(text_renderer) = &mut app.text_renderer {
+        let window_size = app.window.inner_size();
+
+        // Prepare difficulty selection text
+        text_renderer.prepare_difficulty_selection(
+            &app.renderer.device,
+            &app.renderer.queue,
+            window_size.width as f32,
+            window_size.height as f32,
+        );
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Difficulty Text Pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view,
                 resolve_target: None,

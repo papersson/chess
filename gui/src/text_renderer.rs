@@ -580,6 +580,168 @@ impl TextRenderer {
             .unwrap();
     }
 
+    pub fn prepare_difficulty_selection(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        screen_width: f32,
+        screen_height: f32,
+    ) {
+        // Clear previous buffers
+        self.piece_buffers.clear();
+        self.game_mode_buffer = None;
+        self.status_buffer = None;
+        self.move_history_buffer = None;
+
+        // Title
+        {
+            let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(48.0, 56.0));
+            buffer.set_size(&mut self.font_system, screen_width, 100.0);
+            buffer.set_text(
+                &mut self.font_system,
+                "Select Difficulty",
+                Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
+            self.game_mode_buffer = Some(buffer);
+        }
+
+        // Easy button text
+        {
+            let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(24.0, 28.0));
+            buffer.set_size(&mut self.font_system, 200.0, 50.0);
+            buffer.set_text(
+                &mut self.font_system,
+                "Easy",
+                Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
+
+            let key = (0, 0); // Dummy key for easy button
+            self.piece_buffers.insert(key, buffer);
+        }
+
+        // Medium button text
+        {
+            let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(24.0, 28.0));
+            buffer.set_size(&mut self.font_system, 200.0, 50.0);
+            buffer.set_text(
+                &mut self.font_system,
+                "Medium",
+                Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
+
+            let key = (1, 0); // Dummy key for medium button
+            self.piece_buffers.insert(key, buffer);
+        }
+
+        // Hard button text
+        {
+            let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(24.0, 28.0));
+            buffer.set_size(&mut self.font_system, 200.0, 50.0);
+            buffer.set_text(
+                &mut self.font_system,
+                "Hard",
+                Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
+
+            let key = (2, 0); // Dummy key for hard button
+            self.piece_buffers.insert(key, buffer);
+        }
+
+        // Now build text areas from stored buffers
+        let mut text_areas = Vec::new();
+
+        // Title text area
+        if let Some(buffer) = &self.game_mode_buffer {
+            text_areas.push(TextArea {
+                buffer,
+                left: 0.0,
+                top: screen_height * 0.25,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: 0,
+                    top: (screen_height * 0.2) as i32,
+                    right: screen_width as i32,
+                    bottom: (screen_height * 0.35) as i32,
+                },
+                default_color: glyphon::Color::rgb(255, 255, 255),
+            });
+        }
+
+        // Easy button text area
+        if let Some(buffer) = self.piece_buffers.get(&(0, 0)) {
+            text_areas.push(TextArea {
+                buffer,
+                left: screen_width * 0.2 - 100.0,
+                top: screen_height * 0.5 - 14.0,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: (screen_width * 0.2 - 100.0) as i32,
+                    top: (screen_height * 0.5 - 25.0) as i32,
+                    right: (screen_width * 0.2 + 100.0) as i32,
+                    bottom: (screen_height * 0.5 + 25.0) as i32,
+                },
+                default_color: glyphon::Color::rgb(255, 255, 255),
+            });
+        }
+
+        // Medium button text area
+        if let Some(buffer) = self.piece_buffers.get(&(1, 0)) {
+            text_areas.push(TextArea {
+                buffer,
+                left: screen_width * 0.5 - 100.0,
+                top: screen_height * 0.5 - 14.0,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: (screen_width * 0.5 - 100.0) as i32,
+                    top: (screen_height * 0.5 - 25.0) as i32,
+                    right: (screen_width * 0.5 + 100.0) as i32,
+                    bottom: (screen_height * 0.5 + 25.0) as i32,
+                },
+                default_color: glyphon::Color::rgb(255, 255, 255),
+            });
+        }
+
+        // Hard button text area
+        if let Some(buffer) = self.piece_buffers.get(&(2, 0)) {
+            text_areas.push(TextArea {
+                buffer,
+                left: screen_width * 0.8 - 100.0,
+                top: screen_height * 0.5 - 14.0,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: (screen_width * 0.8 - 100.0) as i32,
+                    top: (screen_height * 0.5 - 25.0) as i32,
+                    right: (screen_width * 0.8 + 100.0) as i32,
+                    bottom: (screen_height * 0.5 + 25.0) as i32,
+                },
+                default_color: glyphon::Color::rgb(255, 255, 255),
+            });
+        }
+
+        self.renderer
+            .prepare(
+                device,
+                queue,
+                &mut self.font_system,
+                &mut self.atlas,
+                Resolution {
+                    width: screen_width as u32,
+                    height: screen_height as u32,
+                },
+                text_areas,
+                &mut self.swash_cache,
+            )
+            .unwrap();
+    }
+
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
         self.renderer.render(&self.atlas, render_pass).unwrap();
     }
