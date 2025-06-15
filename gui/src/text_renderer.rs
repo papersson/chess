@@ -485,6 +485,101 @@ impl TextRenderer {
             .unwrap();
     }
 
+    pub fn prepare_game_over(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        screen_width: f32,
+        screen_height: f32,
+        result_text: &str,
+    ) {
+        // Clear previous buffers
+        self.piece_buffers.clear();
+        self.game_mode_buffer = None;
+        self.status_buffer = None;
+        self.move_history_buffer = None;
+
+        // Result text (large, centered)
+        {
+            let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(36.0, 42.0));
+            buffer.set_size(&mut self.font_system, screen_width, 100.0);
+            buffer.set_text(
+                &mut self.font_system,
+                result_text,
+                Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
+            self.game_mode_buffer = Some(buffer);
+        }
+
+        // New Game button text
+        {
+            let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(24.0, 28.0));
+            buffer.set_size(&mut self.font_system, 200.0, 50.0);
+            buffer.set_text(
+                &mut self.font_system,
+                "New Game",
+                Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
+            self.status_buffer = Some(buffer);
+        }
+
+        // Now build text areas from stored buffers
+        let mut text_areas = Vec::new();
+
+        // Result text area
+        if let Some(buffer) = &self.game_mode_buffer {
+            text_areas.push(TextArea {
+                buffer,
+                left: 0.0,
+                top: screen_height * 0.42,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: 0,
+                    top: (screen_height * 0.38) as i32,
+                    right: screen_width as i32,
+                    bottom: (screen_height * 0.5) as i32,
+                },
+                default_color: glyphon::Color::rgb(255, 255, 255),
+            });
+        }
+
+        // New Game button text area
+        if let Some(buffer) = &self.status_buffer {
+            text_areas.push(TextArea {
+                buffer,
+                left: screen_width * 0.5 - 100.0,
+                top: screen_height * 0.575,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: (screen_width * 0.5 - 100.0) as i32,
+                    top: (screen_height * 0.55) as i32,
+                    right: (screen_width * 0.5 + 100.0) as i32,
+                    bottom: (screen_height * 0.625) as i32,
+                },
+                default_color: glyphon::Color::rgb(255, 255, 255),
+            });
+        }
+
+        self.renderer
+            .prepare(
+                device,
+                queue,
+                &mut self.font_system,
+                &mut self.atlas,
+                Resolution {
+                    width: screen_width as u32,
+                    height: screen_height as u32,
+                },
+                text_areas,
+                &mut self.swash_cache,
+            )
+            .unwrap();
+    }
+
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
         self.renderer.render(&self.atlas, render_pass).unwrap();
     }

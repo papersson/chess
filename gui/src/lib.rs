@@ -272,6 +272,12 @@ fn handle_mouse_click(app: &mut ChessGUI) {
         return;
     }
 
+    // Handle game over click
+    if is_game_over(&app.game_state) {
+        handle_game_over_click(app);
+        return;
+    }
+
     // Don't allow moves if AI is thinking
     if app.ai_thinking {
         return;
@@ -554,6 +560,11 @@ fn render_frame(app: &mut ChessGUI) {
             // Render promotion selection if pending
             if app.promotion_pending.is_some() {
                 render_promotion_selection(app, &mut encoder, &view);
+            }
+
+            // Render game over overlay if game is finished
+            if is_game_over(&app.game_state) {
+                render_game_over_overlay(app, &mut encoder, &view);
             }
 
             app.renderer.submit_frame(encoder, output);
@@ -844,6 +855,206 @@ fn is_game_over(game_state: &GameState) -> bool {
         || is_stalemate(game_state)
         || game_state.is_fifty_move_draw()
         || game_state.is_insufficient_material()
+}
+
+fn handle_game_over_click(app: &mut ChessGUI) {
+    let x = app.mouse_position.x as f32;
+    let y = app.mouse_position.y as f32;
+    let window_size = app.window.inner_size();
+
+    // Convert to NDC
+    let ndc_x = (x / window_size.width as f32) * 2.0 - 1.0;
+    let ndc_y = 1.0 - (y / window_size.height as f32) * 2.0;
+
+    // Check if clicking on the new game button
+    // Button is centered at Y = -0.2
+    if ndc_y >= -0.35 && ndc_y <= -0.05 && ndc_x >= -0.2 && ndc_x <= 0.2 {
+        // Reset the game
+        app.game_state = GameState::new();
+        app.selected_square = None;
+        app.valid_moves.clear();
+        app.promotion_pending = None;
+        app.move_history.clear();
+        app.ai_thinking = false;
+        app.last_move = None;
+        app.ai_move_receiver = None;
+
+        // If playing against AI and AI plays white, trigger AI move
+        if let GameMode::HumanVsAI(Color::White) = app.game_mode {
+            trigger_ai_move(app);
+        }
+
+        update_display(app);
+    }
+}
+
+fn render_game_over_overlay(
+    app: &mut ChessGUI,
+    encoder: &mut wgpu::CommandEncoder,
+    view: &wgpu::TextureView,
+) {
+    let mut vertices = Vec::new();
+
+    // Semi-transparent overlay over entire screen
+    vertices.extend_from_slice(&[
+        Vertex {
+            position: [-1.0, -1.0],
+            color: [0.0, 0.0, 0.0, 0.8],
+        },
+        Vertex {
+            position: [1.0, -1.0],
+            color: [0.0, 0.0, 0.0, 0.8],
+        },
+        Vertex {
+            position: [-1.0, 1.0],
+            color: [0.0, 0.0, 0.0, 0.8],
+        },
+        Vertex {
+            position: [1.0, -1.0],
+            color: [0.0, 0.0, 0.0, 0.8],
+        },
+        Vertex {
+            position: [1.0, 1.0],
+            color: [0.0, 0.0, 0.0, 0.8],
+        },
+        Vertex {
+            position: [-1.0, 1.0],
+            color: [0.0, 0.0, 0.0, 0.8],
+        },
+    ]);
+
+    // Result display background (centered box)
+    let box_color = [0.2, 0.2, 0.2, 0.95];
+    vertices.extend_from_slice(&[
+        Vertex {
+            position: [-0.4, -0.1],
+            color: box_color,
+        },
+        Vertex {
+            position: [0.4, -0.1],
+            color: box_color,
+        },
+        Vertex {
+            position: [-0.4, 0.3],
+            color: box_color,
+        },
+        Vertex {
+            position: [0.4, -0.1],
+            color: box_color,
+        },
+        Vertex {
+            position: [0.4, 0.3],
+            color: box_color,
+        },
+        Vertex {
+            position: [-0.4, 0.3],
+            color: box_color,
+        },
+    ]);
+
+    // New Game button
+    let btn_color = [0.3, 0.5, 0.7, 1.0];
+    vertices.extend_from_slice(&[
+        Vertex {
+            position: [-0.2, -0.35],
+            color: btn_color,
+        },
+        Vertex {
+            position: [0.2, -0.35],
+            color: btn_color,
+        },
+        Vertex {
+            position: [-0.2, -0.05],
+            color: btn_color,
+        },
+        Vertex {
+            position: [0.2, -0.35],
+            color: btn_color,
+        },
+        Vertex {
+            position: [0.2, -0.05],
+            color: btn_color,
+        },
+        Vertex {
+            position: [-0.2, -0.05],
+            color: btn_color,
+        },
+    ]);
+
+    // Create temporary buffer
+    let overlay_buffer =
+        app.renderer
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Game Over Overlay Buffer"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+
+    // Render the overlay
+    {
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Game Over Overlay Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+
+        render_pass.set_pipeline(&app.renderer.render_pipeline);
+        render_pass.set_vertex_buffer(0, overlay_buffer.slice(..));
+        render_pass.draw(0..vertices.len() as u32, 0..1);
+    }
+
+    // Render text (game result and new game button)
+    if let Some(text_renderer) = &mut app.text_renderer {
+        let window_size = app.window.inner_size();
+
+        // Get game result text
+        let result_text = if is_checkmate(&app.game_state) {
+            format!("{} wins by checkmate!", app.game_state.turn.opponent())
+        } else if is_stalemate(&app.game_state) {
+            "Stalemate - Draw".to_string()
+        } else if app.game_state.is_fifty_move_draw() {
+            "Draw by fifty-move rule".to_string()
+        } else if app.game_state.is_insufficient_material() {
+            "Draw by insufficient material".to_string()
+        } else {
+            "Game Over".to_string()
+        };
+
+        text_renderer.prepare_game_over(
+            &app.renderer.device,
+            &app.renderer.queue,
+            window_size.width as f32,
+            window_size.height as f32,
+            &result_text,
+        );
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Game Over Text Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+
+        text_renderer.render(&mut render_pass);
+    }
 }
 
 fn render_mode_selection(
