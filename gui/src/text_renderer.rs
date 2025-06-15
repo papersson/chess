@@ -10,6 +10,8 @@ pub struct UiText {
     pub game_mode: String,
     pub status: String,
     pub move_history: Vec<String>,
+    pub undo_enabled: bool,
+    pub redo_enabled: bool,
 }
 
 pub struct TextRenderer {
@@ -23,6 +25,8 @@ pub struct TextRenderer {
     game_mode_buffer: Option<Buffer>,
     status_buffer: Option<Buffer>,
     move_history_buffer: Option<Buffer>,
+    undo_buffer: Option<Buffer>,
+    redo_buffer: Option<Buffer>,
 }
 
 impl TextRenderer {
@@ -48,6 +52,8 @@ impl TextRenderer {
             game_mode_buffer: None,
             status_buffer: None,
             move_history_buffer: None,
+            undo_buffer: None,
+            redo_buffer: None,
         }
     }
 
@@ -156,6 +162,34 @@ impl TextRenderer {
             self.move_history_buffer = Some(buffer);
         }
 
+        // Undo button text
+        {
+            let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(20.0, 24.0));
+            buffer.set_size(&mut self.font_system, 40.0, 30.0);
+            buffer.set_text(
+                &mut self.font_system,
+                "↶", // Unicode undo arrow
+                Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
+            self.undo_buffer = Some(buffer);
+        }
+
+        // Redo button text
+        {
+            let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(20.0, 24.0));
+            buffer.set_size(&mut self.font_system, 40.0, 30.0);
+            buffer.set_text(
+                &mut self.font_system,
+                "↷", // Unicode redo arrow
+                Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
+            self.redo_buffer = Some(buffer);
+        }
+
         // Build text areas from stored buffers
         let mut text_areas = Vec::new();
 
@@ -209,6 +243,50 @@ impl TextRenderer {
                     bottom: screen_height as i32,
                 },
                 default_color: glyphon::Color::rgb(180, 180, 180),
+            });
+        }
+
+        // Add undo button label
+        if let Some(buffer) = &self.undo_buffer {
+            let button_y = screen_height * 0.325; // Matches button_y = 0.35 in NDC
+            text_areas.push(TextArea {
+                buffer,
+                left: screen_width * 0.85 - 12.0, // Center in button
+                top: button_y - 8.0,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: (screen_width * 0.85 - 20.0) as i32,
+                    top: (button_y - 20.0) as i32,
+                    right: (screen_width * 0.85 + 20.0) as i32,
+                    bottom: (button_y + 20.0) as i32,
+                },
+                default_color: if ui_text.undo_enabled {
+                    glyphon::Color::rgb(255, 255, 255)
+                } else {
+                    glyphon::Color::rgb(100, 100, 100)
+                },
+            });
+        }
+
+        // Add redo button label
+        if let Some(buffer) = &self.redo_buffer {
+            let button_y = screen_height * 0.325;
+            text_areas.push(TextArea {
+                buffer,
+                left: screen_width * 0.91 - 12.0, // Center in button
+                top: button_y - 8.0,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: (screen_width * 0.91 - 20.0) as i32,
+                    top: (button_y - 20.0) as i32,
+                    right: (screen_width * 0.91 + 20.0) as i32,
+                    bottom: (button_y + 20.0) as i32,
+                },
+                default_color: if ui_text.redo_enabled {
+                    glyphon::Color::rgb(255, 255, 255)
+                } else {
+                    glyphon::Color::rgb(100, 100, 100)
+                },
             });
         }
 

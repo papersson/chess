@@ -42,6 +42,9 @@ struct ChessGUI {
     animating_move: Option<AnimationState>,
     last_frame_time: std::time::Instant,
     sound_manager: Option<sound::SoundManager>,
+    // Undo/redo support
+    game_state_history: Vec<GameState>,
+    redo_stack: Vec<GameState>,
 }
 
 struct AnimationState {
@@ -97,7 +100,7 @@ impl ChessGUI {
             renderer,
             board,
             text_renderer: Some(text_renderer),
-            game_state,
+            game_state: game_state.clone(),
             mouse_position: PhysicalPosition::new(0.0, 0.0),
             selected_square: None,
             valid_moves: Vec::new(),
@@ -112,6 +115,8 @@ impl ChessGUI {
             animating_move: None,
             last_frame_time: std::time::Instant::now(),
             sound_manager,
+            game_state_history: vec![game_state],
+            redo_stack: Vec::new(),
         }
     }
 }
@@ -200,6 +205,8 @@ pub fn run() {
                             // Apply AI move
                             let move_notation = format_move(&app.game_state, ai_move);
                             app.game_state = app.game_state.apply_move(ai_move);
+                            app.game_state_history.push(app.game_state.clone());
+                            app.redo_stack.clear(); // Clear redo stack on new move
                             app.move_history.push(move_notation);
                             app.last_move = Some(ai_move);
                             app.ai_thinking = false;
@@ -274,6 +281,82 @@ fn update_display(app: &mut ChessGUI) {
         Vertex {
             position: [0.6, 1.0],
             color: panel_bg_color,
+        },
+    ]);
+
+    // Add undo/redo buttons
+    let button_y = 0.35; // Position between game mode and status
+    let button_width = 0.08;
+    let button_height = 0.08;
+    let button_spacing = 0.02;
+
+    // Undo button
+    let undo_enabled = app.game_state_history.len() > 1 && !app.ai_thinking;
+    let undo_color = if undo_enabled {
+        [0.3, 0.5, 0.7, 1.0]
+    } else {
+        [0.2, 0.2, 0.2, 0.5]
+    };
+    let undo_x = 0.7;
+    all_vertices.extend_from_slice(&[
+        Vertex {
+            position: [undo_x, button_y - button_height / 2.0],
+            color: undo_color,
+        },
+        Vertex {
+            position: [undo_x + button_width, button_y - button_height / 2.0],
+            color: undo_color,
+        },
+        Vertex {
+            position: [undo_x, button_y + button_height / 2.0],
+            color: undo_color,
+        },
+        Vertex {
+            position: [undo_x + button_width, button_y - button_height / 2.0],
+            color: undo_color,
+        },
+        Vertex {
+            position: [undo_x + button_width, button_y + button_height / 2.0],
+            color: undo_color,
+        },
+        Vertex {
+            position: [undo_x, button_y + button_height / 2.0],
+            color: undo_color,
+        },
+    ]);
+
+    // Redo button
+    let redo_enabled = !app.redo_stack.is_empty() && !app.ai_thinking;
+    let redo_color = if redo_enabled {
+        [0.3, 0.5, 0.7, 1.0]
+    } else {
+        [0.2, 0.2, 0.2, 0.5]
+    };
+    let redo_x = undo_x + button_width + button_spacing;
+    all_vertices.extend_from_slice(&[
+        Vertex {
+            position: [redo_x, button_y - button_height / 2.0],
+            color: redo_color,
+        },
+        Vertex {
+            position: [redo_x + button_width, button_y - button_height / 2.0],
+            color: redo_color,
+        },
+        Vertex {
+            position: [redo_x, button_y + button_height / 2.0],
+            color: redo_color,
+        },
+        Vertex {
+            position: [redo_x + button_width, button_y - button_height / 2.0],
+            color: redo_color,
+        },
+        Vertex {
+            position: [redo_x + button_width, button_y + button_height / 2.0],
+            color: redo_color,
+        },
+        Vertex {
+            position: [redo_x, button_y + button_height / 2.0],
+            color: redo_color,
         },
     ]);
 
@@ -354,6 +437,45 @@ fn handle_mouse_click(app: &mut ChessGUI) {
         return;
     }
 
+    // Handle undo/redo button clicks
+    let x = app.mouse_position.x as f32;
+    let y = app.mouse_position.y as f32;
+    let window_size = app.window.inner_size();
+
+    // Convert to NDC
+    let ndc_x = (x / window_size.width as f32) * 2.0 - 1.0;
+    let ndc_y = 1.0 - (y / window_size.height as f32) * 2.0;
+
+    // Check if clicking on undo button
+    let button_y = 0.35;
+    let button_width = 0.08;
+    let button_height = 0.08;
+    let undo_x = 0.7;
+
+    if ndc_x >= undo_x
+        && ndc_x <= undo_x + button_width
+        && ndc_y >= button_y - button_height / 2.0
+        && ndc_y <= button_y + button_height / 2.0
+    {
+        if app.game_state_history.len() > 1 && !app.ai_thinking {
+            handle_undo(app);
+            return;
+        }
+    }
+
+    // Check if clicking on redo button
+    let redo_x = undo_x + button_width + 0.02;
+    if ndc_x >= redo_x
+        && ndc_x <= redo_x + button_width
+        && ndc_y >= button_y - button_height / 2.0
+        && ndc_y <= button_y + button_height / 2.0
+    {
+        if !app.redo_stack.is_empty() && !app.ai_thinking {
+            handle_redo(app);
+            return;
+        }
+    }
+
     // Handle game over click
     if is_game_over(&app.game_state) {
         handle_game_over_click(app);
@@ -419,6 +541,8 @@ fn handle_mouse_click(app: &mut ChessGUI) {
 
                 let move_notation = format_move(&app.game_state, promotion_move);
                 app.game_state = app.game_state.apply_move(promotion_move);
+                app.game_state_history.push(app.game_state.clone());
+                app.redo_stack.clear(); // Clear redo stack on new move
                 app.move_history.push(move_notation);
                 app.last_move = Some(promotion_move);
                 app.selected_square = None;
@@ -531,6 +655,8 @@ fn handle_mouse_click(app: &mut ChessGUI) {
                     // Apply the move
                     let move_notation = format_move(&app.game_state, chess_move);
                     app.game_state = app.game_state.apply_move(chess_move);
+                    app.game_state_history.push(app.game_state.clone());
+                    app.redo_stack.clear(); // Clear redo stack on new move
                     app.move_history.push(move_notation);
                     app.last_move = Some(chess_move);
                     app.selected_square = None;
@@ -723,6 +849,8 @@ fn render_frame(app: &mut ChessGUI) {
                     },
                     status: status_text,
                     move_history: app.move_history.clone(),
+                    undo_enabled: app.game_state_history.len() > 1 && !app.ai_thinking,
+                    redo_enabled: !app.redo_stack.is_empty() && !app.ai_thinking,
                 };
 
                 text_renderer.prepare_pieces(
@@ -926,6 +1054,8 @@ fn render_promotion_selection(
                 game_mode: String::new(),
                 status: String::new(),
                 move_history: Vec::new(),
+                undo_enabled: false,
+                redo_enabled: false,
             }, // No UI text during promotion
         );
 
@@ -1073,6 +1203,8 @@ fn handle_game_over_click(app: &mut ChessGUI) {
     if ndc_y >= -0.35 && ndc_y <= -0.05 && ndc_x >= -0.2 && ndc_x <= 0.2 {
         // Reset the game
         app.game_state = GameState::new();
+        app.game_state_history = vec![app.game_state.clone()];
+        app.redo_stack.clear();
         app.selected_square = None;
         app.valid_moves.clear();
         app.promotion_pending = None;
@@ -1287,6 +1419,90 @@ fn handle_difficulty_selection_click(app: &mut ChessGUI) {
             app.game_mode = GameMode::HumanVsAI(Color::Black, AIDifficulty::Hard);
             app.difficulty_selection_active = false;
             update_display(app);
+        }
+    }
+}
+
+fn handle_undo(app: &mut ChessGUI) {
+    if app.game_state_history.len() <= 1 || app.ai_thinking {
+        return;
+    }
+
+    // Push current state to redo stack
+    app.redo_stack.push(app.game_state.clone());
+
+    // Pop from history (keep at least one state)
+    app.game_state_history.pop();
+    app.game_state = app.game_state_history.last().unwrap().clone();
+
+    // Rebuild move history
+    rebuild_move_history(app);
+
+    // Clear selections and update display
+    app.selected_square = None;
+    app.valid_moves.clear();
+    app.last_move = None;
+    app.ai_move_receiver = None;
+
+    // Play a click sound
+    if let Some(sound_manager) = &app.sound_manager {
+        sound_manager.play_move();
+    }
+
+    update_display(app);
+}
+
+fn handle_redo(app: &mut ChessGUI) {
+    if app.redo_stack.is_empty() || app.ai_thinking {
+        return;
+    }
+
+    // Pop from redo stack
+    let next_state = app.redo_stack.pop().unwrap();
+
+    // Push current state to history
+    app.game_state_history.push(app.game_state.clone());
+    app.game_state = next_state;
+
+    // Rebuild move history
+    rebuild_move_history(app);
+
+    // Clear selections and update display
+    app.selected_square = None;
+    app.valid_moves.clear();
+    app.last_move = None;
+
+    // Play a click sound
+    if let Some(sound_manager) = &app.sound_manager {
+        sound_manager.play_move();
+    }
+
+    update_display(app);
+}
+
+fn rebuild_move_history(app: &mut ChessGUI) {
+    app.move_history.clear();
+
+    for i in 1..app.game_state_history.len() {
+        // Find the move that was made between states i-1 and i
+        // This is a simplified approach - in production you might store the moves separately
+        let prev_state = &app.game_state_history[i - 1];
+        let curr_state = &app.game_state_history[i];
+
+        // Generate all legal moves from previous state
+        let legal_moves = generate_legal_moves(prev_state);
+
+        // Find which move leads to the current state
+        for mv in legal_moves.iter() {
+            let test_state = prev_state.apply_move(*mv);
+            // Simple comparison - you might want a more robust state comparison
+            if test_state.board.piece_at(mv.to) == curr_state.board.piece_at(mv.to)
+                && test_state.turn == curr_state.turn
+            {
+                let move_notation = format_move(prev_state, *mv);
+                app.move_history.push(move_notation);
+                break;
+            }
         }
     }
 }
