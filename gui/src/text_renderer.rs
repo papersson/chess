@@ -325,104 +325,150 @@ impl TextRenderer {
             .unwrap();
     }
 
-    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
-        self.renderer.render(&self.atlas, render_pass).unwrap();
-    }
-
-    pub fn prepare_text(
+    pub fn prepare_mode_selection(
         &mut self,
         device: &Device,
         queue: &Queue,
-        text: &str,
         screen_width: f32,
         screen_height: f32,
     ) {
-        // Create a buffer for the status text
-        let mut buffer = Buffer::new(
-            &mut self.font_system,
-            Metrics::new(24.0, 28.0), // Smaller font size for status
-        );
-        buffer.set_size(&mut self.font_system, screen_width, 40.0);
-        buffer.set_text(
-            &mut self.font_system,
-            text,
-            Attrs::new().family(Family::SansSerif),
-            Shaping::Advanced,
-        );
-        buffer.shape_until_scroll(&mut self.font_system);
+        // Clear previous buffers
+        self.piece_buffers.clear();
+        self.game_mode_buffer = None;
+        self.status_buffer = None;
+        self.move_history_buffer = None;
 
-        self.status_buffer = Some(buffer);
-
-        // Build text areas including status text
-        let mut text_areas = Vec::new();
-
-        // Add status text area in the side panel
-        if let Some(buffer) = &self.status_buffer {
-            let panel_left = screen_width * 0.8 + 20.0; // Right side panel
-            text_areas.push(TextArea {
-                buffer,
-                left: panel_left,
-                top: 40.0,
-                scale: 1.0,
-                bounds: TextBounds {
-                    left: panel_left as i32,
-                    top: 0,
-                    right: screen_width as i32,
-                    bottom: 100,
-                },
-                default_color: glyphon::Color::rgb(255, 255, 255),
-            });
+        // Title
+        {
+            let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(48.0, 56.0));
+            buffer.set_size(&mut self.font_system, screen_width, 100.0);
+            buffer.set_text(
+                &mut self.font_system,
+                "Chess",
+                Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
+            self.game_mode_buffer = Some(buffer);
         }
 
-        // Add piece text areas
-        for ((screen_x, screen_y), buffer) in &self.piece_buffers {
-            let screen_x = *screen_x as f32;
-            let screen_y = *screen_y as f32;
-            let square_size = buffer.metrics().line_height;
+        // Subtitle
+        {
+            let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(24.0, 28.0));
+            buffer.set_size(&mut self.font_system, screen_width, 50.0);
+            buffer.set_text(
+                &mut self.font_system,
+                "Select Game Mode",
+                Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
+            self.status_buffer = Some(buffer);
+        }
 
-            // Calculate bounds for centering
-            let left = screen_x - square_size / 2.0;
-            let top = screen_y - square_size / 2.0;
+        // Button 1 text
+        {
+            let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(20.0, 24.0));
+            buffer.set_size(&mut self.font_system, 200.0, 50.0);
+            buffer.set_text(
+                &mut self.font_system,
+                "Human vs Human",
+                Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
 
-            // Add black outline areas
-            for dx in [-1, 0, 1].iter() {
-                for dy in [-1, 0, 1].iter() {
-                    if *dx == 0 && *dy == 0 {
-                        continue;
-                    }
-                    text_areas.push(TextArea {
-                        buffer,
-                        left: left + *dx as f32,
-                        top: top + *dy as f32,
-                        scale: 1.0,
-                        bounds: TextBounds {
-                            left: 0,
-                            top: 0,
-                            right: screen_width as i32,
-                            bottom: screen_height as i32,
-                        },
-                        default_color: glyphon::Color::rgb(0, 0, 0),
-                    });
-                }
-            }
+            let key = (0, 0); // Dummy key for button 1
+            self.piece_buffers.insert(key, buffer);
+        }
 
-            // Add the main piece
+        // Button 2 text
+        {
+            let mut buffer = Buffer::new(&mut self.font_system, Metrics::new(20.0, 24.0));
+            buffer.set_size(&mut self.font_system, 200.0, 50.0);
+            buffer.set_text(
+                &mut self.font_system,
+                "Human vs AI",
+                Attrs::new().family(Family::SansSerif),
+                Shaping::Advanced,
+            );
+            buffer.shape_until_scroll(&mut self.font_system);
+
+            let key = (1, 0); // Dummy key for button 2
+            self.piece_buffers.insert(key, buffer);
+        }
+
+        // Now build text areas from stored buffers
+        let mut text_areas = Vec::new();
+
+        // Title text area
+        if let Some(buffer) = &self.game_mode_buffer {
             text_areas.push(TextArea {
                 buffer,
-                left,
-                top,
+                left: 0.0,
+                top: screen_height * 0.2,
                 scale: 1.0,
                 bounds: TextBounds {
                     left: 0,
-                    top: 0,
+                    top: (screen_height * 0.15) as i32,
                     right: screen_width as i32,
-                    bottom: screen_height as i32,
+                    bottom: (screen_height * 0.35) as i32,
                 },
                 default_color: glyphon::Color::rgb(255, 255, 255),
             });
         }
 
-        // Prepare for rendering
+        // Subtitle text area
+        if let Some(buffer) = &self.status_buffer {
+            text_areas.push(TextArea {
+                buffer,
+                left: 0.0,
+                top: screen_height * 0.35,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: 0,
+                    top: (screen_height * 0.3) as i32,
+                    right: screen_width as i32,
+                    bottom: (screen_height * 0.4) as i32,
+                },
+                default_color: glyphon::Color::rgb(200, 200, 200),
+            });
+        }
+
+        // Button 1 text area
+        if let Some(buffer) = self.piece_buffers.get(&(0, 0)) {
+            text_areas.push(TextArea {
+                buffer,
+                left: screen_width * 0.25 - 100.0,
+                top: screen_height * 0.5 - 12.0,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: (screen_width * 0.25 - 100.0) as i32,
+                    top: (screen_height * 0.5 - 25.0) as i32,
+                    right: (screen_width * 0.25 + 100.0) as i32,
+                    bottom: (screen_height * 0.5 + 25.0) as i32,
+                },
+                default_color: glyphon::Color::rgb(255, 255, 255),
+            });
+        }
+
+        // Button 2 text area
+        if let Some(buffer) = self.piece_buffers.get(&(1, 0)) {
+            text_areas.push(TextArea {
+                buffer,
+                left: screen_width * 0.75 - 100.0,
+                top: screen_height * 0.5 - 12.0,
+                scale: 1.0,
+                bounds: TextBounds {
+                    left: (screen_width * 0.75 - 100.0) as i32,
+                    top: (screen_height * 0.5 - 25.0) as i32,
+                    right: (screen_width * 0.75 + 100.0) as i32,
+                    bottom: (screen_height * 0.5 + 25.0) as i32,
+                },
+                default_color: glyphon::Color::rgb(255, 255, 255),
+            });
+        }
+
         self.renderer
             .prepare(
                 device,
@@ -437,5 +483,9 @@ impl TextRenderer {
                 &mut self.swash_cache,
             )
             .unwrap();
+    }
+
+    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+        self.renderer.render(&self.atlas, render_pass).unwrap();
     }
 }

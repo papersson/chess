@@ -358,10 +358,6 @@ impl UciEngine {
             let _ = thread.join();
         }
     }
-
-    fn format_move(&self, mv: Move) -> String {
-        format_move_static(mv)
-    }
 }
 
 fn format_move_static(mv: Move) -> String {

@@ -3,7 +3,7 @@ use chess_core::{generate_legal_moves, Color, File, GameState, Move, PieceType, 
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
     event::{self, Event, KeyCode, KeyEvent},
-    style::{Color as TermColor, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
+    style::{Color as TermColor, ResetColor, SetBackgroundColor, SetForegroundColor},
     terminal::{self, Clear, ClearType},
     ExecutableCommand,
 };
@@ -115,7 +115,7 @@ impl InteractiveGame {
             Rank::new(self.cursor_pos.1).unwrap(),
         );
 
-        if let Some(selected) = self.selected_square {
+        if let Some(_selected) = self.selected_square {
             // We have a piece selected, try to move it
             if let Some(mv) = self
                 .legal_moves_for_selected

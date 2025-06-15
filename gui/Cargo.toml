@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 bytemuck = { version = "1.14", features = ["derive"] }
 chess-core = { path = "../core" }
+chess-agents = { path = "../agents" }
 pollster = "0.3"
 raw-window-handle = "0.5"
 wgpu = { version = "0.19", features = ["wgsl"] }

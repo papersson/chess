@@ -1,17 +1,17 @@
 mod board;
-mod camera;
-mod pieces;
 mod renderer;
-mod sprite_batch;
 mod text_renderer;
 
 use board::BoardRenderer;
+use chess_agents::{Agent, MinimaxAgent};
 use chess_core::{
-    generate_legal_moves, is_checkmate, is_stalemate, Color, File, GameState, PieceType, Rank,
-    Square,
+    generate_legal_moves, is_checkmate, is_stalemate, Color, File, GameState, Move, PieceType,
+    Rank, Square,
 };
 use renderer::{Renderer, Vertex};
+use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
+use std::thread;
 use text_renderer::{TextRenderer, UiText};
 use wgpu::util::DeviceExt;
 use winit::{
@@ -33,9 +33,14 @@ struct ChessGUI {
     promotion_pending: Option<PromotionState>,
     game_mode: GameMode,
     move_history: Vec<String>,
+    ai_thinking: bool,
+    mode_selection_active: bool,
+    last_move: Option<Move>,
+    ai_move_receiver: Option<Receiver<Move>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 enum GameMode {
     HumanVsHuman,
     HumanVsAI(Color), // AI plays this color
@@ -75,6 +80,10 @@ impl ChessGUI {
             promotion_pending: None,
             game_mode: GameMode::HumanVsHuman,
             move_history: Vec::new(),
+            ai_thinking: false,
+            mode_selection_active: true,
+            last_move: None,
+            ai_move_receiver: None,
         }
     }
 }
@@ -129,6 +138,20 @@ pub fn run() {
                     handle_mouse_click(&mut app);
                 }
                 Event::AboutToWait => {
+                    // Check for AI move completion
+                    if let Some(receiver) = &app.ai_move_receiver {
+                        if let Ok(ai_move) = receiver.try_recv() {
+                            // Apply AI move
+                            let move_notation = format_move(&app.game_state, ai_move);
+                            app.game_state = app.game_state.apply_move(ai_move);
+                            app.move_history.push(move_notation);
+                            app.last_move = Some(ai_move);
+                            app.ai_thinking = false;
+                            app.ai_move_receiver = None;
+                            update_display(&mut app);
+                        }
+                    }
+
                     // Request a redraw before waiting
                     app.window.request_redraw();
                 }
@@ -142,6 +165,7 @@ fn update_display(app: &mut ChessGUI) {
     // Update board selection state
     app.board
         .set_selection(app.selected_square, app.valid_moves.clone());
+    app.board.set_last_move(app.last_move);
 
     // Update board vertices with highlights
     let mut all_vertices = app.board.generate_vertices().to_vec();
@@ -242,6 +266,16 @@ fn update_display(app: &mut ChessGUI) {
 }
 
 fn handle_mouse_click(app: &mut ChessGUI) {
+    // Handle mode selection first
+    if app.mode_selection_active {
+        handle_mode_selection_click(app);
+        return;
+    }
+
+    // Don't allow moves if AI is thinking
+    if app.ai_thinking {
+        return;
+    }
     // Handle promotion selection first
     if let Some(promo_state) = &app.promotion_pending {
         let board_size = 800.0;
@@ -283,15 +317,17 @@ fn handle_mouse_click(app: &mut ChessGUI) {
                 let move_notation = format_move(&app.game_state, promotion_move);
                 app.game_state = app.game_state.apply_move(promotion_move);
                 app.move_history.push(move_notation);
+                app.last_move = Some(promotion_move);
                 app.selected_square = None;
                 app.valid_moves.clear();
                 update_display(app);
+
+                // Trigger AI move if applicable
+                trigger_ai_move(app);
             }
         }
         return;
     }
-
-    let board_size = 800.0;
 
     // Convert mouse position to board coordinates
     let x = app.mouse_position.x as f32;
@@ -314,7 +350,7 @@ fn handle_mouse_click(app: &mut ChessGUI) {
                         app.selected_square = Some(clicked_square);
                         // Generate legal moves for this piece
                         // Generate legal moves for this piece
-                        let all_moves = chess_core::generate_legal_moves(&app.game_state);
+                        let all_moves = generate_legal_moves(&app.game_state);
                         app.valid_moves = all_moves
                             .iter()
                             .filter(|m| m.from == clicked_square)
@@ -364,15 +400,19 @@ fn handle_mouse_click(app: &mut ChessGUI) {
                     let move_notation = format_move(&app.game_state, chess_move);
                     app.game_state = app.game_state.apply_move(chess_move);
                     app.move_history.push(move_notation);
+                    app.last_move = Some(chess_move);
                     app.selected_square = None;
                     app.valid_moves.clear();
                     update_display(app);
+
+                    // Trigger AI move if applicable
+                    trigger_ai_move(app);
                 } else {
                     // Check if selecting a different piece of the same color
                     if let Some(piece) = app.game_state.board.piece_at(clicked_square) {
                         if piece.color == app.game_state.turn {
                             app.selected_square = Some(clicked_square);
-                            let all_moves = chess_core::generate_legal_moves(&app.game_state);
+                            let all_moves = generate_legal_moves(&app.game_state);
                             app.valid_moves = all_moves
                                 .iter()
                                 .filter(|m| m.from == clicked_square)
@@ -400,6 +440,12 @@ fn handle_mouse_click(app: &mut ChessGUI) {
 fn render_frame(app: &mut ChessGUI) {
     match app.renderer.begin_frame() {
         Ok((output, view, mut encoder)) => {
+            // Render mode selection screen if active
+            if app.mode_selection_active {
+                render_mode_selection(app, &mut encoder, &view);
+                app.renderer.submit_frame(encoder, output);
+                return;
+            }
             // First render pass: render the board
             {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -460,13 +506,19 @@ fn render_frame(app: &mut ChessGUI) {
                 }
 
                 // Prepare UI text
+                let status_text = if app.ai_thinking {
+                    "AI is thinking...".to_string()
+                } else {
+                    get_game_status_text(&app.game_state)
+                };
+
                 let ui_text = UiText {
                     game_mode: match app.game_mode {
                         GameMode::HumanVsHuman => "Human vs Human".to_string(),
                         GameMode::HumanVsAI(Color::White) => "AI (White) vs Human".to_string(),
                         GameMode::HumanVsAI(Color::Black) => "Human vs AI (Black)".to_string(),
                     },
-                    status: get_game_status_text(&app.game_state),
+                    status: status_text,
                     move_history: app.move_history.clone(),
                 };
 
@@ -737,4 +789,221 @@ fn format_move(game_state: &GameState, chess_move: chess_core::Move) -> String {
         chess_move.to.file().to_char(),
         chess_move.to.rank().index() + 1
     )
+}
+
+fn handle_mode_selection_click(app: &mut ChessGUI) {
+    let x = app.mouse_position.x as f32;
+    let y = app.mouse_position.y as f32;
+    let window_size = app.window.inner_size();
+
+    // Convert to NDC
+    let ndc_x = (x / window_size.width as f32) * 2.0 - 1.0;
+    let ndc_y = 1.0 - (y / window_size.height as f32) * 2.0;
+
+    // Check if clicking on one of the mode buttons
+    // Buttons are centered at Y = 0.0
+    if ndc_y >= -0.15 && ndc_y <= 0.15 {
+        if ndc_x >= -0.5 && ndc_x <= -0.1 {
+            // Human vs Human
+            app.game_mode = GameMode::HumanVsHuman;
+            app.mode_selection_active = false;
+            update_display(app);
+        } else if ndc_x >= 0.1 && ndc_x <= 0.5 {
+            // Human vs AI
+            app.game_mode = GameMode::HumanVsAI(Color::Black);
+            app.mode_selection_active = false;
+            update_display(app);
+        }
+    }
+}
+
+fn trigger_ai_move(app: &mut ChessGUI) {
+    if let GameMode::HumanVsAI(ai_color) = app.game_mode {
+        if app.game_state.turn == ai_color && !is_game_over(&app.game_state) {
+            app.ai_thinking = true;
+            update_display(app);
+
+            // Clone the game state for the AI thread
+            let game_state = app.game_state.clone();
+            let (tx, rx) = channel();
+            app.ai_move_receiver = Some(rx);
+
+            // Spawn thread for AI computation
+            thread::spawn(move || {
+                let mut ai_agent = MinimaxAgent::with_time_limit(1000);
+                if let Some(ai_move) = ai_agent.best_move(&game_state) {
+                    let _ = tx.send(ai_move);
+                }
+            });
+        }
+    }
+}
+
+fn is_game_over(game_state: &GameState) -> bool {
+    is_checkmate(game_state)
+        || is_stalemate(game_state)
+        || game_state.is_fifty_move_draw()
+        || game_state.is_insufficient_material()
+}
+
+fn render_mode_selection(
+    app: &mut ChessGUI,
+    encoder: &mut wgpu::CommandEncoder,
+    view: &wgpu::TextureView,
+) {
+    // Generate vertices for mode selection screen
+    let mut vertices = Vec::new();
+
+    // Background
+    vertices.extend_from_slice(&[
+        Vertex {
+            position: [-1.0, -1.0],
+            color: [0.15, 0.15, 0.15, 1.0],
+        },
+        Vertex {
+            position: [1.0, -1.0],
+            color: [0.15, 0.15, 0.15, 1.0],
+        },
+        Vertex {
+            position: [-1.0, 1.0],
+            color: [0.15, 0.15, 0.15, 1.0],
+        },
+        Vertex {
+            position: [1.0, -1.0],
+            color: [0.15, 0.15, 0.15, 1.0],
+        },
+        Vertex {
+            position: [1.0, 1.0],
+            color: [0.15, 0.15, 0.15, 1.0],
+        },
+        Vertex {
+            position: [-1.0, 1.0],
+            color: [0.15, 0.15, 0.15, 1.0],
+        },
+    ]);
+
+    // Button 1: Human vs Human
+    let btn1_color = [0.3, 0.5, 0.7, 1.0];
+    vertices.extend_from_slice(&[
+        Vertex {
+            position: [-0.5, -0.15],
+            color: btn1_color,
+        },
+        Vertex {
+            position: [-0.1, -0.15],
+            color: btn1_color,
+        },
+        Vertex {
+            position: [-0.5, 0.15],
+            color: btn1_color,
+        },
+        Vertex {
+            position: [-0.1, -0.15],
+            color: btn1_color,
+        },
+        Vertex {
+            position: [-0.1, 0.15],
+            color: btn1_color,
+        },
+        Vertex {
+            position: [-0.5, 0.15],
+            color: btn1_color,
+        },
+    ]);
+
+    // Button 2: Human vs AI
+    let btn2_color = [0.7, 0.3, 0.3, 1.0];
+    vertices.extend_from_slice(&[
+        Vertex {
+            position: [0.1, -0.15],
+            color: btn2_color,
+        },
+        Vertex {
+            position: [0.5, -0.15],
+            color: btn2_color,
+        },
+        Vertex {
+            position: [0.1, 0.15],
+            color: btn2_color,
+        },
+        Vertex {
+            position: [0.5, -0.15],
+            color: btn2_color,
+        },
+        Vertex {
+            position: [0.5, 0.15],
+            color: btn2_color,
+        },
+        Vertex {
+            position: [0.1, 0.15],
+            color: btn2_color,
+        },
+    ]);
+
+    // Create temporary buffer
+    let mode_buffer = app
+        .renderer
+        .device
+        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Mode Selection Buffer"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+    // Render the mode selection
+    {
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Mode Selection Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 1.0,
+                    }),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+
+        render_pass.set_pipeline(&app.renderer.render_pipeline);
+        render_pass.set_vertex_buffer(0, mode_buffer.slice(..));
+        render_pass.draw(0..vertices.len() as u32, 0..1);
+    }
+
+    // Render text labels
+    if let Some(text_renderer) = &mut app.text_renderer {
+        let window_size = app.window.inner_size();
+
+        // Prepare mode selection text
+        text_renderer.prepare_mode_selection(
+            &app.renderer.device,
+            &app.renderer.queue,
+            window_size.width as f32,
+            window_size.height as f32,
+        );
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Mode Text Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+
+        text_renderer.render(&mut render_pass);
+    }
 }

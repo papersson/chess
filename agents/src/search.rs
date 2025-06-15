@@ -114,6 +114,7 @@ impl SearchInfo {
         }
     }
 
+    #[allow(dead_code)]
     fn new_with_stop_flag(
         limits: SearchLimits,
         tt: Arc<TranspositionTable>,

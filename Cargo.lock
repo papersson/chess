@@ -277,6 +277,7 @@ name = "chess-gui"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "chess-agents",
  "chess-core",
  "glyphon",
  "pollster",

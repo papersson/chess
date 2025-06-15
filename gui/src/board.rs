@@ -7,10 +7,12 @@ pub struct BoardRenderer {
     dark_color: [f32; 4],
     selected_color: [f32; 4],
     valid_move_color: [f32; 4],
+    last_move_color: [f32; 4],
     board_size: f32,
     square_size: f32,
     selected_square: Option<Square>,
     valid_moves: Vec<Square>,
+    last_move: Option<Move>,
 }
 
 impl BoardRenderer {
@@ -19,6 +21,7 @@ impl BoardRenderer {
         let dark_color = [0.54, 0.27, 0.07, 1.0]; // Dark brown
         let selected_color = [0.7, 0.7, 0.3, 1.0]; // Yellow highlight
         let valid_move_color = [0.3, 0.7, 0.3, 0.5]; // Semi-transparent green
+        let last_move_color = [0.5, 0.3, 0.7, 0.3]; // Semi-transparent purple
         let square_size = board_size / 8.0;
 
         Self {
@@ -27,16 +30,22 @@ impl BoardRenderer {
             dark_color,
             selected_color,
             valid_move_color,
+            last_move_color,
             board_size,
             square_size,
             selected_square: None,
             valid_moves: Vec::new(),
+            last_move: None,
         }
     }
 
     pub fn set_selection(&mut self, selected: Option<Square>, valid_moves: Vec<Move>) {
         self.selected_square = selected;
         self.valid_moves = valid_moves.into_iter().map(|m| m.to).collect();
+    }
+
+    pub fn set_last_move(&mut self, last_move: Option<Move>) {
+        self.last_move = last_move;
     }
 
     pub fn generate_vertices(&mut self) -> &[Vertex] {
@@ -96,6 +105,51 @@ impl BoardRenderer {
                 });
 
                 // Triangle 2
+                self.vertices.push(Vertex {
+                    position: [ndc_x2, ndc_y],
+                    color,
+                });
+                self.vertices.push(Vertex {
+                    position: [ndc_x2, ndc_y2],
+                    color,
+                });
+                self.vertices.push(Vertex {
+                    position: [ndc_x, ndc_y2],
+                    color,
+                });
+            }
+        }
+
+        // Add semi-transparent overlay for last move
+        if let Some(last_move) = self.last_move {
+            for &square in &[last_move.from, last_move.to] {
+                let col = square.file().index() as usize;
+                let row = 7 - square.rank().index() as usize;
+
+                let x = col as f32 * self.square_size;
+                let y = row as f32 * self.square_size;
+
+                let board_width = 1.6;
+                let ndc_x = (x / self.board_size) * board_width - 1.0;
+                let ndc_y = 1.0 - (y / self.board_size) * 2.0;
+                let ndc_x2 = ((x + self.square_size) / self.board_size) * board_width - 1.0;
+                let ndc_y2 = 1.0 - ((y + self.square_size) / self.board_size) * 2.0;
+
+                let color = self.last_move_color;
+
+                self.vertices.push(Vertex {
+                    position: [ndc_x, ndc_y],
+                    color,
+                });
+                self.vertices.push(Vertex {
+                    position: [ndc_x2, ndc_y],
+                    color,
+                });
+                self.vertices.push(Vertex {
+                    position: [ndc_x, ndc_y2],
+                    color,
+                });
+
                 self.vertices.push(Vertex {
                     position: [ndc_x2, ndc_y],
                     color,
