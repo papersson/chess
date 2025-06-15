@@ -1,5 +1,6 @@
 mod board;
 mod renderer;
+mod sound;
 mod text_renderer;
 
 use board::BoardRenderer;
@@ -40,6 +41,7 @@ struct ChessGUI {
     ai_move_receiver: Option<Receiver<Move>>,
     animating_move: Option<AnimationState>,
     last_frame_time: std::time::Instant,
+    sound_manager: Option<sound::SoundManager>,
 }
 
 struct AnimationState {
@@ -87,6 +89,9 @@ impl ChessGUI {
         let text_renderer =
             TextRenderer::new(&renderer.device, &renderer.queue, renderer.config.format);
 
+        // Initialize sound manager (optional - don't fail if audio isn't available)
+        let sound_manager = sound::SoundManager::new().ok();
+
         Self {
             window,
             renderer,
@@ -106,6 +111,7 @@ impl ChessGUI {
             ai_move_receiver: None,
             animating_move: None,
             last_frame_time: std::time::Instant::now(),
+            sound_manager,
         }
     }
 }
@@ -188,6 +194,9 @@ pub fn run() {
                                 });
                             }
 
+                            // Check if AI move is a capture
+                            let is_capture = app.game_state.board.piece_at(ai_move.to).is_some();
+
                             // Apply AI move
                             let move_notation = format_move(&app.game_state, ai_move);
                             app.game_state = app.game_state.apply_move(ai_move);
@@ -195,6 +204,20 @@ pub fn run() {
                             app.last_move = Some(ai_move);
                             app.ai_thinking = false;
                             app.ai_move_receiver = None;
+
+                            // Play appropriate sound
+                            if let Some(sound_manager) = &app.sound_manager {
+                                if is_game_over(&app.game_state) {
+                                    sound_manager.play_game_over();
+                                } else if app.game_state.is_in_check() {
+                                    sound_manager.play_check();
+                                } else if is_capture {
+                                    sound_manager.play_capture();
+                                } else {
+                                    sound_manager.play_move();
+                                }
+                            }
+
                             update_display(&mut app);
                         }
                     }
@@ -390,12 +413,30 @@ fn handle_mouse_click(app: &mut ChessGUI) {
 
                 let promotion_move =
                     chess_core::Move::new_promotion(promo_state.from, promo_state.to, piece_type);
+
+                // Check if this is a capture promotion
+                let is_capture = app.game_state.board.piece_at(promo_state.to).is_some();
+
                 let move_notation = format_move(&app.game_state, promotion_move);
                 app.game_state = app.game_state.apply_move(promotion_move);
                 app.move_history.push(move_notation);
                 app.last_move = Some(promotion_move);
                 app.selected_square = None;
                 app.valid_moves.clear();
+
+                // Play appropriate sound
+                if let Some(sound_manager) = &app.sound_manager {
+                    if is_game_over(&app.game_state) {
+                        sound_manager.play_game_over();
+                    } else if app.game_state.is_in_check() {
+                        sound_manager.play_check();
+                    } else if is_capture {
+                        sound_manager.play_capture();
+                    } else {
+                        sound_manager.play_move();
+                    }
+                }
+
                 update_display(app);
 
                 // Trigger AI move if applicable
@@ -484,6 +525,9 @@ fn handle_mouse_click(app: &mut ChessGUI) {
                         });
                     }
 
+                    // Check if this is a capture move before applying
+                    let is_capture = app.game_state.board.piece_at(clicked_square).is_some();
+
                     // Apply the move
                     let move_notation = format_move(&app.game_state, chess_move);
                     app.game_state = app.game_state.apply_move(chess_move);
@@ -491,6 +535,20 @@ fn handle_mouse_click(app: &mut ChessGUI) {
                     app.last_move = Some(chess_move);
                     app.selected_square = None;
                     app.valid_moves.clear();
+
+                    // Play appropriate sound
+                    if let Some(sound_manager) = &app.sound_manager {
+                        if is_game_over(&app.game_state) {
+                            sound_manager.play_game_over();
+                        } else if app.game_state.is_in_check() {
+                            sound_manager.play_check();
+                        } else if is_capture {
+                            sound_manager.play_capture();
+                        } else {
+                            sound_manager.play_move();
+                        }
+                    }
+
                     update_display(app);
 
                     // Trigger AI move if applicable

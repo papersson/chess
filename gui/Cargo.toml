@@ -12,6 +12,7 @@ raw-window-handle = "0.5"
 wgpu = { version = "0.19", features = ["wgsl"] }
 glyphon = "0.5"
 winit = "0.29"
+rodio = "0.20.1"
 
 [[bin]]
 name = "chess-gui"
